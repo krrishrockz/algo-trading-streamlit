@@ -410,7 +410,8 @@ with tab1:
                 )
                 st.plotly_chart(fig, use_container_width=True)
                 try:
-                    fig.write_image(chart_filename, engine="kaleido")
+                    st.plotly_chart(fig, use_container_width=True)
+                    st.caption("💡 Use the camera icon on the chart to export as PNG.")
                     logging.info(f"Saved forecast chart to {chart_filename}")
                 except Exception as e:
                     st.warning(f"⚠️ Failed to save forecast chart: {e}")
@@ -808,7 +809,8 @@ with tab3:
             # Save equity curve (optional)
             chart_filename = f"{selected_symbol}_DQN_Equity.png"
             try:
-                fig.write_image(chart_filename, engine="kaleido")
+                st.plotly_chart(fig, use_container_width=True)
+                st.caption("💡 Use the camera icon on the chart to export as PNG.")
                 with open(chart_filename, "rb") as f:
                     st.download_button(
                         label="📥 Download DQN Equity Curve (PNG)",
@@ -950,7 +952,8 @@ with tab4:
     chart_filename = f"{selected_symbol}_Comparison_Equity.png"
     try:
         if plot_type == "Plotly":
-            fig.write_image(chart_filename, engine="kaleido")
+            st.plotly_chart(fig, use_container_width=True)
+            st.caption("💡 Use the camera icon on the chart to export as PNG.")
         elif plot_type == "Matplotlib":
             fig.savefig(chart_filename)
         with open(chart_filename, "rb") as f:
@@ -1521,5 +1524,6 @@ with tab6:
                 st.caption(f"Last alert at **{ts}**")
         except Exception as e:
             st.warning(f"Alert demo error: {e}")
+
 
 
