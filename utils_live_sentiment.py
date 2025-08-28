@@ -39,7 +39,7 @@ def ensure_vader_lexicon() -> bool:
       3) download via nltk (last resort)
     """
     try:
-        # 1) Prefer the repo copy (zip)
+        # 1) Prefer the repo copy (zip or extracted dir)
         repo_sentiment_zip = os.path.join(
             _repo_nltk_path(), "sentiment", "vader_lexicon.zip"
         )
@@ -49,7 +49,8 @@ def ensure_vader_lexicon() -> bool:
 
         if os.path.exists(repo_sentiment_zip) or os.path.exists(repo_sentiment_dir):
             # Ensure nltk looks into ./nltk_data first
-            nltk.data.path.insert(0, _repo_nltk_path())
+            if _repo_nltk_path() not in nltk.data.path:
+                nltk.data.path.insert(0, _repo_nltk_path())
 
         # 2) Try to locate the resource without downloading
         #    We check both the zip and extracted dir variants.
@@ -84,8 +85,18 @@ def _get_analyzer():
     """
     if not ensure_vader_lexicon():
         raise RuntimeError("VADER lexicon could not be loaded.")
-    from nltk.sentiment.vader import SentimentIntensityAnalyzer  # lazy import
+    # Lazy import after we know the data path is correct
+    from nltk.sentiment.vader import SentimentIntensityAnalyzer
     return SentimentIntensityAnalyzer()
+
+
+# ✅ NEW helper: keep your existing call sites intact
+def _ensure_vader():
+    """
+    Back-compat shim for code that calls _ensure_vader().
+    Returns a ready-to-use SentimentIntensityAnalyzer.
+    """
+    return _get_analyzer()
 
 
 # ------------------------------------------------------------
@@ -96,8 +107,6 @@ from urllib.parse import quote_plus
 def _google_news_feed_url(query: str) -> str:
     q = f'{query} (stock OR shares) when:7d'
     return f"https://news.google.com/rss/search?q={quote_plus(q)}&hl=en-IN&gl=IN&ceid=IN:en"
-
-
 
 
 def fetch_headlines_google_news(symbol: str, max_items: int = 50, timeout: int = 8) -> pd.DataFrame:
@@ -186,7 +195,7 @@ def compute_daily_compound(df_news: pd.DataFrame) -> pd.Series:
     if df_news is None or df_news.empty:
         return pd.Series(dtype=float)
 
-    sid = _ensure_vader()  # your existing getter/auto-download
+    sid = _ensure_vader()  # your existing getter/auto-download (now defined)
     df = df_news.copy()
     df["published"] = pd.to_datetime(df["published"], utc=True, errors="coerce")
     df.dropna(subset=["published"], inplace=True)
@@ -196,7 +205,6 @@ def compute_daily_compound(df_news: pd.DataFrame) -> pd.Series:
     out.index = pd.to_datetime(out.index)
     out.index = out.index.tz_localize("Asia/Kolkata").tz_convert("UTC").tz_localize(None)
     return out.sort_index()
-
 
 
 def get_live_daily_sentiment(symbol: str, max_items: int = 80, lookback_days: int = 21):
@@ -233,7 +241,6 @@ def get_live_daily_sentiment(symbol: str, max_items: int = 80, lookback_days: in
     return pd.Series(dtype=float), "None"
 
 
-
 # ------------------------------------------------------------
 # Alignment helper for SARIMAX exogenous array
 # ------------------------------------------------------------
@@ -258,5 +265,3 @@ def align_sentiment_to_index(sent_daily: pd.Series, target_index: pd.DatetimeInd
     aligned = sent.reindex(target_dates).ffill().fillna(0.0)
     aligned.index = target_index  # restore original index
     return aligned
-
-
