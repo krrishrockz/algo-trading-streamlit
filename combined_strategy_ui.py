@@ -45,6 +45,9 @@ from time_series_models import (
 # fetch_google_news_sentiment function must use VADER
 from vaderSentiment.vaderSentiment import SentimentIntensityAnalyzer
 
+from utils_live_sentiment import get_live_daily_sentiment, align_sentiment_to_index
+
+
 # ---------- Stable download helpers (prevent state-loss on rerun) ----------
 def put_download(slot: str, data_bytes: bytes, mime: str):
     """Save download bytes/mime in session_state to survive reruns."""
@@ -418,18 +421,18 @@ with tab1:
             # Optional sentiment series for SARIMAX
             sentiment_input = pd.Series([0.0] * len(df.index), index=df.index)
             if forecast_model == "SARIMAX" and enable_sentiment:
-                with st.spinner("📰 Fetching news sentiment..."):
-                    news_df = fetch_google_news_sentiment(selected_symbol)
-                    if not news_df.empty:
-                        news_df["Published"] = pd.to_datetime(news_df["Published"]).dt.normalize()
-                        daily_sentiment_avg = news_df.groupby("Published")["Score"].mean()
-                        sentiment_input = daily_sentiment_avg.reindex(df.index, method="ffill")
-                        sentiment_input = sentiment_input.fillna(daily_sentiment_avg.mean()).fillna(
-                            0.0
-                        )
+                with st.spinner("📰 Pulling live news sentiment…"):
+                    sent_daily = get_live_daily_sentiment(selected_symbol)
+                sentiment_input = align_sentiment_to_index(sent_daily, df.index)
+                # Small status line so users know recency of the feed
+                try:
+                    if not sent_daily.empty:
+                        st.caption(f"🕒 News sentiment updated through {sent_daily.index.max().date()} (auto-refresh ~3 min)")
                     else:
-                        st.warning("⚠️ No news data found. Using neutral sentiment for SARIMAX.")
-                        logger.warning(f"No news data for {selected_symbol}")
+                        st.warning("⚠️ No recent headlines found; using neutral sentiment (0.0).")
+                except Exception:
+                    pass
+
 
             # Run model
             forecast_result = model_fit = lower = upper = None
