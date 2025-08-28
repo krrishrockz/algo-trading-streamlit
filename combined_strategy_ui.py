@@ -352,51 +352,6 @@ with tab1:
         if st.session_state["_downloads"].get("forecast_metrics_csv"):
             dl_button("forecast_metrics_csv", "📊 Download Metrics CSV", "forecast_metrics.csv", key="dl_forecast_metrics_csv_rerun")
 
-    # --- ADDED: Restore the last forecast (chart + metrics) on any rerun ---
-    _fc = st.session_state.get("_forecast_ctx")
-    if _fc:
-        try:
-            _hist_idx = pd.to_datetime(_fc["hist_index"])
-            _hist_close = pd.Series(_fc["hist_close"], index=_hist_idx, name="Close")
-
-            _fexp = pd.DataFrame(_fc["forecast_df"])
-            if "Date" in _fexp.columns:
-                _fexp["Date"] = pd.to_datetime(_fexp["Date"])
-                _fexp.set_index("Date", inplace=True)
-
-            _lower = _fexp["Lower CI"] if "Lower CI" in _fexp.columns else None
-            _upper = _fexp["Upper CI"] if "Upper CI" in _fexp.columns else None
-            _forecast_series = _fexp["Forecast"]
-
-            _fig_restore = go.Figure()
-            _fig_restore.add_trace(go.Scatter(x=_hist_idx, y=_hist_close, name="Historical", line=dict(color="blue")))
-            _fig_restore.add_trace(go.Scatter(x=_forecast_series.index, y=_forecast_series.values, name="Forecast", line=dict(color="orange")))
-            if _lower is not None and _upper is not None:
-                _fig_restore.add_trace(go.Scatter(
-                    x=_forecast_series.index.tolist() + _forecast_series.index[::-1].tolist(),
-                    y=_upper.tolist() + _lower[::-1].tolist(),
-                    fill="toself",
-                    fillcolor="rgba(255,165,0,0.2)",
-                    line=dict(color="rgba(255,255,255,0)"),
-                    name="Confidence Interval",
-                    showlegend=True
-                ))
-            _fig_restore.update_layout(
-                title=f"{_fc['selected_symbol']} – {_fc['forecast_model']} Forecast",
-                xaxis_title="Date", yaxis_title="Price (INR)",
-                template="plotly_white", height=500
-            )
-            plotly_chart_unique(_fig_restore, "forecast_restore")
-
-            _rmse, _mae, _mape = _fc.get("rmse"), _fc.get("mae"), _fc.get("mape")
-            if _rmse is not None and _mae is not None and _mape is not None:
-                _c1, _c2, _c3 = st.columns(3)
-                _c1.metric("RMSE", f"{_rmse:.2f}")
-                _c2.metric("MAE", f"{_mae:.2f}")
-                _c3.metric("MAPE", f"{_mape:.2f}%")
-        except Exception as _e:
-            logging.warning(f"Forecast restore failed: {_e}")
-
     col1, col2 = st.columns(2)
     with col1:
         forecast_model = st.selectbox("Select Forecasting Model", ["ARIMA", "SARIMA", "SARIMAX", "Prophet", "LSTM"], key="forecast_model")
@@ -413,7 +368,7 @@ with tab1:
             st.info(f"🔍 Running {forecast_model} Forecast for **{selected_symbol}**...")
             logger.info(f"Fetching data for {selected_symbol} from {start_date} to {end_date}")
             df = fetch_stock_data(selected_symbol, start=start_date, end=end_date)
-            
+
             if df.empty:
                 st.error("❌ No data found in selected range. Please adjust the date range or ticker.")
                 logger.error(f"No data for {selected_symbol} from {start_date} to {end_date}")
@@ -421,13 +376,14 @@ with tab1:
 
             # Debug print DataFrame details
             st.write(f"DataFrame head:\n{df.head().to_markdown()}")
-            
+
             # Validate data for LSTM
             if forecast_model == "LSTM" and len(df) < 60:
                 st.error(f"❌ Insufficient data points ({len(df)}) for LSTM. Requires at least 60 days.")
                 logger.error(f"Insufficient data points ({len(df)}) for LSTM. Requires at least 60 days.")
                 st.stop()
 
+            # Prepare optional exogenous sentiment for SARIMAX
             sentiment_input = pd.Series([0.0] * len(df.index), index=df.index)
             if forecast_model == "SARIMAX" and enable_sentiment:
                 with st.spinner("📰 Fetching news sentiment..."):
@@ -468,58 +424,63 @@ with tab1:
                         logger.info("LSTM forecast successful")
                     else:
                         logger.error("LSTM returned None for forecast_result or model_fit")
-            
+
             if forecast_result is None or model_fit is None:
                 st.error("🚨 Forecasting model failed to generate results.")
                 logger.error(f"{forecast_model} failed to generate results")
                 st.stop()
 
-            # ------------------------------------------------------------------
-            # Build forecast DataFrame
-            forecast_df = pd.DataFrame({"Forecast": forecast_result.values}, index=pd.to_datetime(forecast_result.index))
-
-            # --- ADDED: Normalize forecast index so it is strictly forward and on business days (Mon–Fri)
-            try:
-                last_hist_date = pd.to_datetime(df.index.max()).normalize()
-
-                # Ensure ascending order (some models may output otherwise)
-                forecast_df = forecast_df.sort_index()
-
-                # Attach CI bands if provided (align lengths defensively)
+            # =========================
+            # Ensure forecast index is FUTURE business days (no weekends)
+            # =========================
+            last_hist_dt = pd.to_datetime(df.index.max())
+            if isinstance(forecast_result.index, pd.DatetimeIndex):
+                # Force strictly future business-day index of length = forecast_days
+                future_idx = pd.bdate_range(last_hist_dt + pd.Timedelta(days=1), periods=forecast_days, freq="B")
+                # Align/trim to length
+                vals = pd.Series(forecast_result.values[:len(future_idx)], index=future_idx)
+                forecast_df = pd.DataFrame({"Forecast": vals})
+                # Align CIs if provided
                 if lower is not None and upper is not None:
-                    lower = pd.Series(np.asarray(lower).ravel()[:len(forecast_df)], index=forecast_df.index, name="Lower CI")
-                    upper = pd.Series(np.asarray(upper).ravel()[:len(forecast_df)], index=forecast_df.index, name="Upper CI")
-                    forecast_df["Lower CI"] = lower
-                    forecast_df["Upper CI"] = upper
-
-                # Keep only future rows
-                forecast_df = forecast_df[forecast_df.index.normalize() > last_hist_date]
-
-                # Rebuild index to business days with the same length (skip weekends)
-                if len(forecast_df) > 0:
-                    bidx = pd.bdate_range(last_hist_date + pd.Timedelta(days=1), periods=len(forecast_df), freq="B")
-                    forecast_df.index = bidx
-
-                # Finally, cap to the slider length
-                if len(forecast_df) > forecast_days:
-                    forecast_df = forecast_df.iloc[:forecast_days]
-            except Exception as _e:
-                logging.warning(f"Forecast index normalization failed: {_e}")
-            # ------------------------------------------------------------------
+                    lower = pd.Series(np.asarray(lower)[:len(future_idx)], index=future_idx)
+                    upper = pd.Series(np.asarray(upper)[:len(future_idx)], index=future_idx)
+            else:
+                # Fallback: build index if the model returned plain array
+                future_idx = pd.bdate_range(last_hist_dt + pd.Timedelta(days=1), periods=forecast_days, freq="B")
+                forecast_df = pd.DataFrame({"Forecast": np.asarray(forecast_result)[:len(future_idx)]}, index=future_idx)
+                if lower is not None and upper is not None:
+                    lower = pd.Series(np.asarray(lower)[:len(future_idx)], index=future_idx)
+                    upper = pd.Series(np.asarray(upper)[:len(future_idx)], index=future_idx)
 
             chart_filename = f"{selected_symbol}_{forecast_model}_Forecast.png" if not export_svg else f"{selected_symbol}_{forecast_model}_Forecast.svg"
 
+            # --- LSTM CI fallback (volatility-based) ---
+            # If the model is LSTM and the model didn't provide CIs, synthesize them from recent volatility.
+            if forecast_model == "LSTM" and (lower is None or upper is None):
+                try:
+                    roll_std = df["Close"].rolling(20).std().dropna()
+                    if not roll_std.empty and np.isfinite(roll_std.iloc[-1]):
+                        sigma = float(roll_std.iloc[-1])  # recent price std-dev
+                        z = 1.96                           # ~95% interval
+                        lower = forecast_df["Forecast"] - z * sigma
+                        upper = forecast_df["Forecast"] + z * sigma
+                    else:
+                        lower, upper = None, None
+                except Exception as _e:
+                    lower, upper = None, None
+
+            # =========================
+            # Chart
+            # =========================
             st.markdown("### 📊 Forecast Chart")
             if chart_mode.startswith("📊"):
                 fig = go.Figure()
                 fig.add_trace(go.Scatter(x=df.index, y=df["Close"], name="Historical", line=dict(color="blue")))
                 fig.add_trace(go.Scatter(x=forecast_df.index, y=forecast_df["Forecast"], name="Forecast", line=dict(color="orange")))
-                if "Lower CI" in forecast_df.columns and "Upper CI" in forecast_df.columns:
-                    lower = forecast_df["Lower CI"]
-                    upper = forecast_df["Upper CI"]
+                if lower is not None and upper is not None:
                     fig.add_trace(go.Scatter(
-                        x=forecast_df.index.tolist() + forecast_df.index[::-1].tolist(),
-                        y=upper.tolist() + lower[::-1].tolist(),
+                        x=list(forecast_df.index) + list(forecast_df.index[::-1]),
+                        y=list(upper.values) + list(lower.values[::-1]),
                         fill='toself',
                         fillcolor='rgba(255,165,0,0.2)',
                         line=dict(color='rgba(255,255,255,0)'),
@@ -540,8 +501,9 @@ with tab1:
                 plt.figure(figsize=(10, 5))
                 plt.plot(df.index, df["Close"], label="Historical", color="steelblue")
                 plt.plot(forecast_df.index, forecast_df["Forecast"], label="Forecast", linestyle="--", color="orange")
-                if "Lower CI" in forecast_df.columns and "Upper CI" in forecast_df.columns:
-                    plt.fill_between(forecast_df.index, forecast_df["Lower CI"], forecast_df["Upper CI"], color="orange", alpha=0.2, label="Confidence Interval")
+                if lower is not None and upper is not None:
+                    plt.fill_between(forecast_df.index, pd.to_numeric(lower, errors="coerce"), pd.to_numeric(upper, errors="coerce"),
+                                     color="orange", alpha=0.2, label="Confidence Interval")
                 plt.title(f"{selected_symbol} – {forecast_model} Forecast")
                 plt.xlabel("Date")
                 plt.ylabel("Price (INR)")
@@ -552,14 +514,23 @@ with tab1:
                 st.image(chart_filename, caption="Matplotlib Forecast", use_container_width=True)
                 logging.info(f"Saved forecast chart to {chart_filename}")
 
+            # =========================
+            # Accuracy Metrics (guarded)
+            # =========================
             st.markdown("### 📈 Forecast Accuracy Metrics")
+            rmse = np.nan
+            mae = np.nan
+            mape = np.nan
             if len(df["Close"]) >= forecast_days:
+                # Compare last 'forecast_days' historical points with first 'forecast_days' forecasts
                 actuals = df["Close"].iloc[-forecast_days:].values
                 preds = forecast_df["Forecast"].iloc[:forecast_days].values
-                if len(actuals) > 0 and len(preds) > 0:
-                    rmse = np.sqrt(mean_squared_error(actuals, preds))
-                    mae = mean_absolute_error(actuals, preds)
-                    mape = np.mean(np.abs((actuals - preds) / actuals[actuals != 0])) * 100 if np.any(actuals != 0) else np.nan
+                if len(actuals) > 0 and len(preds) > 0 and len(actuals) == len(preds):
+                    rmse = float(np.sqrt(mean_squared_error(actuals, preds)))
+                    mae = float(mean_absolute_error(actuals, preds))
+                    # Avoid division by zero in MAPE
+                    safe_actuals = np.where(actuals == 0, np.nan, actuals)
+                    mape = float(np.nanmean(np.abs((actuals - preds) / safe_actuals)) * 100)
                     col1, col2, col3 = st.columns(3)
                     col1.metric("RMSE", f"{rmse:.2f}")
                     col2.metric("MAE", f"{mae:.2f}")
@@ -569,15 +540,35 @@ with tab1:
             else:
                 st.warning(f"Cannot calculate accuracy metrics: Not enough historical data.")
 
+            # =========================
+            # Downloads (no rerun resets)
+            # =========================
+            # Prepare export table
+            # Normalize CI columns to align with forecast_df index
+            lower_col = pd.Series(np.nan, index=forecast_df.index) if lower is None else pd.Series(lower, index=forecast_df.index)
+            upper_col = pd.Series(np.nan, index=forecast_df.index) if upper is None else pd.Series(upper, index=forecast_df.index)
             export_df = pd.DataFrame({
                 "Date": forecast_df.index,
-                "Forecast": forecast_df["Forecast"],
-                "Lower CI": forecast_df["Lower CI"] if "Lower CI" in forecast_df.columns else None,
-                "Upper CI": forecast_df["Upper CI"] if "Upper CI" in forecast_df.columns else None
+                "Forecast": forecast_df["Forecast"].values,
+                "Lower CI": lower_col.values,
+                "Upper CI": upper_col.values
             })
-           # st.download_button("📥 Download Forecast CSV", export_df.to_csv(index=False).encode(), file_name="forecast.csv")
 
-           # Only show a chart file download when we created one (Matplotlib path)
+            # Stash bytes so download buttons don’t reset the app
+            forecast_csv_bytes = export_df.to_csv(index=False).encode()
+            put_download("forecast_csv", forecast_csv_bytes, "text/csv")
+
+            metrics_csv = pd.DataFrame({
+                "Metric": ["RMSE", "MAE", "MAPE"],
+                "Value": [rmse, mae, mape]
+            }).to_csv(index=False).encode()
+            put_download("forecast_metrics_csv", metrics_csv, "text/csv")
+
+            # Build buttons from stashed bytes (survive reruns)
+            dl_button("forecast_csv", "📥 Download Forecast CSV", "forecast.csv", key="dl_forecast_csv")
+            dl_button("forecast_metrics_csv", "📊 Download Metrics CSV", "forecast_metrics.csv", key="dl_forecast_metrics_csv")
+
+            # Only show a chart file download when we created one (Matplotlib path)
             if (not chart_mode.startswith("📊")) and os.path.exists(chart_filename):
                 with open(chart_filename, "rb") as f:
                     st.download_button(
@@ -586,41 +577,6 @@ with tab1:
                         file_name=chart_filename,
                         mime="image/png" if not export_svg else "image/svg+xml"
                     )
-
-            metrics_csv = pd.DataFrame({
-                "Metric": ["RMSE", "MAE", "MAPE"],
-                "Value": [rmse, mae, mape]
-            }).to_csv(index=False).encode()
-            #st.download_button("📊 Download Metrics CSV", metrics_csv, file_name="forecast_metrics.csv")
-
-            # --- ADDED: Persist latest forecast context so it survives reruns ---
-            try:
-                _export_df_for_store = export_df.copy()
-                if "Date" not in _export_df_for_store.columns:
-                    _export_df_for_store.insert(0, "Date", forecast_df.index)
-                _export_df_for_store["Date"] = pd.to_datetime(_export_df_for_store["Date"]).astype(str)
-
-                st.session_state["_forecast_ctx"] = {
-                    "selected_symbol": str(selected_symbol),
-                    "forecast_model": str(forecast_model),
-                    "hist_index": pd.to_datetime(df.index).astype(str).tolist(),
-                    "hist_close": pd.to_numeric(df["Close"], errors="coerce").astype(float).tolist(),
-                    "forecast_df": _export_df_for_store.to_dict(orient="list"),
-                    "rmse": float(rmse) if "rmse" in locals() else None,
-                    "mae": float(mae) if "mae" in locals() else None,
-                    "mape": float(mape) if "mape" in locals() else None,
-                }
-            except Exception as _e:
-                logging.warning(f"Could not persist forecast context: {_e}")
-
-            # Prepare/stash bytes once
-            forecast_csv_bytes = export_df.to_csv(index=False).encode()
-            put_download("forecast_csv", forecast_csv_bytes, "text/csv")
-            put_download("forecast_metrics_csv", metrics_csv, "text/csv")
-
-            # Build buttons from stashed bytes (survive reruns)
-            dl_button("forecast_csv", "📥 Download Forecast CSV", "forecast.csv", key="dl_forecast_csv")
-            dl_button("forecast_metrics_csv", "📊 Download Metrics CSV", "forecast_metrics.csv", key="dl_forecast_metrics_csv")
 
         except Exception as e:
             st.error(f"🚨 Forecasting Error: {e}")
@@ -1741,4 +1697,3 @@ with tab6:
                 st.caption(f"Last alert at **{ts}**")
         except Exception as e:
             st.warning(f"Alert demo error: {e}")
-
