@@ -1,52 +1,101 @@
-from jinja2 import Environment, FileSystemLoader, select_autoescape
-from weasyprint import HTML
-import os
+# report_generator.py
+# Safe report generator that doesn't hard-require WeasyPrint (works on Streamlit Cloud).
+from __future__ import annotations
+import datetime as _dt
+from typing import Any, Dict
 
-def generate_html_report(
-    stock_name,
-    model_name,
-    acc,
-    shap_path,
-    lime_path,
-    chart_path,
-    benchmark_df,
-    report_df,
-    output_path="final_report.pdf"
-):
+# Try optional PDF engine
+try:
+    from weasyprint import HTML  # type: ignore
+    _HAS_WEASYPRINT = True
+except Exception:
+    HTML = None  # type: ignore
+    _HAS_WEASYPRINT = False
+
+
+def _html_shell(title: str, body_html: str) -> str:
+    """Wrap a body section in a minimal, print-friendly HTML shell."""
+    return f"""<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8"/>
+<title>{title}</title>
+<style>
+  body {{ font-family: Arial, Helvetica, sans-serif; margin: 24px; color: #111; }}
+  h1,h2,h3 {{ margin: 0 0 12px; }}
+  .muted {{ color: #666; font-size: 12px; }}
+  table {{ border-collapse: collapse; width: 100%; margin: 12px 0; }}
+  th, td {{ border: 1px solid #ddd; padding: 6px 8px; font-size: 13px; }}
+  th {{ background: #f5f7fa; text-align: left; }}
+  .kpi {{ display: inline-block; min-width: 140px; padding: 8px 10px; margin: 6px 10px 6px 0; background:#f6f9fc; border-radius: 8px; }}
+</style>
+</head>
+<body>
+{body_html}
+</body>
+</html>"""
+
+
+def generate_html_report(context: Dict[str, Any]) -> str:
     """
-    Generate a strategy comparison report PDF.
+    Build an HTML summary string for download/preview.
+    context can include:
+      - title: str
+      - symbol: str
+      - period: str
+      - run_time: datetime or str
+      - kpis: dict[str, Any]
+      - notes: str
+      - tables: dict[name -> HTML string or simple dict/list]
     """
+    title = context.get("title") or "Algorithmic Trading Report"
+    symbol = context.get("symbol") or ""
+    period = context.get("period") or ""
+    run_time = context.get("run_time") or _dt.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
 
-    # Ensure template directory is correct
-    template_dir = os.path.join(os.path.dirname(__file__), "templates")
-    env = Environment(
-        loader=FileSystemLoader(template_dir),
-        autoescape=select_autoescape()
-    )
+    # KPIs (render if provided)
+    kpi_html = ""
+    kpis = context.get("kpis") or {}
+    if isinstance(kpis, dict) and kpis:
+        chips = []
+        for k, v in kpis.items():
+            chips.append(f'<div class="kpi"><b>{k}</b><br>{v}</div>')
+        kpi_html = "<div>" + "".join(chips) + "</div>"
 
-    # Load template
-    try:
-        template = env.get_template("report_template.html")
-    except Exception as e:
-        raise FileNotFoundError(f"❌ Could not load report_template.html from {template_dir}: {e}")
+    # Tables (accept raw HTML strings, or simple lists/dicts)
+    tables_html = ""
+    tables = context.get("tables") or {}
+    if isinstance(tables, dict) and tables:
+        for name, tbl in tables.items():
+            tables_html += f"<h3>{name}</h3>"
+            if isinstance(tbl, str) and "<table" in tbl.lower():
+                tables_html += tbl
+            else:
+                # build a simple table from sequences/dicts
+                import pandas as _pd
+                try:
+                    df = _pd.DataFrame(tbl)
+                except Exception:
+                    df = _pd.DataFrame({"value": [tbl]})
+                tables_html += df.to_html(index=False, border=0)
 
-    # Replace missing paths with None so template won’t break
-    shap_path = shap_path if shap_path and os.path.exists(shap_path) else None
-    lime_path = lime_path if lime_path and os.path.exists(lime_path) else None
-    chart_path = chart_path if chart_path and os.path.exists(chart_path) else None
+    notes = context.get("notes") or ""
 
-    # Render HTML
-    html_content = template.render(
-        stock=stock_name,
-        model=model_name,
-        accuracy=f"{acc:.2%}" if acc else "N/A",
-        shap_path=shap_path,
-        lime_path=lime_path,
-        chart_path=chart_path,
-        benchmark_table=benchmark_df.to_html(index=False, classes="styled-table"),
-        metrics_table=report_df.to_html(classes="compact styled-table", float_format="{:.2f}".format, index=False)
-    )
+    body = f"""
+<h1>{title}</h1>
+<p class="muted">Symbol: <b>{symbol}</b> &nbsp;|&nbsp; Period: <b>{period}</b> &nbsp;|&nbsp; Generated: {run_time}</p>
+{kpi_html}
+{tables_html}
+{('<h3>Notes</h3><p>' + notes + '</p>') if notes else ''}
+"""
+    return _html_shell(title, body)
 
-    # Write and convert to PDF
-    HTML(string=html_content, base_url=template_dir).write_pdf(output_path)
-    return output_path
+
+def html_to_pdf_bytes(html_str: str) -> bytes | None:
+    """
+    Try to render HTML to PDF. Returns bytes on success, or None if
+    WeasyPrint is not available (e.g., Streamlit Community Cloud).
+    """
+    if _HAS_WEASYPRINT and HTML is not None:
+        return HTML(string=html_str).write_pdf()
+    return None
