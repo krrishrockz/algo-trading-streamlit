@@ -94,73 +94,91 @@ def run_sarima(df, steps=5):
         return None, None, None, None, {}
 
 
-# ---------------------- SARIMAX (with sentiment) ----------------------
 def run_sarimax(df, sentiment_series=None, steps=5):
+    """
+    SARIMAX with optional exogenous sentiment.
+    - Aligns & standardizes exog
+    - Skips exog if flat/missing
+    - Returns diagnostics: metrics['exog_used'] and metrics['beta_sent']
+    """
     try:
-        series = df["Close"]
+        from statsmodels.tsa.statespace.sarimax import SARIMAX
+        import numpy as np
+        import pandas as pd
 
-        # Prepare exogenous sentiment (aligned + standardized if it has variance)
-        exog = None
-        used_exog = False
-        sent_mean = None
-        sent_std = None
+        series = df["Close"].astype(float)
+        exog_used = False
         beta_sent = None
 
-        if sentiment_series is not None and not getattr(sentiment_series, "empty", True):
-            s = pd.Series(sentiment_series).copy()
-            s.index = pd.to_datetime(s.index)
-            # align to the price index (keep business days), then fill
-            s = s.reindex(series.index).ffill().bfill()
-
-            # only use if it actually varies
-            sent_std = float(s.std(skipna=True))
-            sent_mean = float(s.mean(skipna=True))
-            if not np.isnan(sent_std) and sent_std > 1e-8:
-                s_z = (s - sent_mean) / sent_std
-                exog = s_z.values.reshape(-1, 1)
-                used_exog = True
+        # Prepare exog (if provided and non-flat)
+        exog_train = None
+        if sentiment_series is not None and isinstance(sentiment_series, (pd.Series, pd.DataFrame)) and len(sentiment_series) > 0:
+            # Ensure Series
+            if isinstance(sentiment_series, pd.DataFrame):
+                if "sent" in sentiment_series.columns:
+                    s = sentiment_series["sent"].copy()
+                else:
+                    s = sentiment_series.iloc[:, 0].copy()
             else:
-                exog = None  # flat → ignore
+                s = sentiment_series.copy()
 
-        # Fit SARIMAX with/without exogenous
-        model = SARIMAX(series, exog=exog, order=(1, 1, 1), seasonal_order=(1, 1, 1, 12))
+            # Align to training series index
+            s = s.reindex(series.index, method="ffill")
+
+            # Standardize
+            if s.std(ddof=0) > 1e-6 and not s.isna().all():
+                s = (s - s.mean()) / (s.std(ddof=0) + 1e-9)
+                s = s.clip(-3, 3)
+                exog_train = pd.DataFrame({"sent": s.astype(float)}, index=series.index)
+                exog_used = True
+
+        # If exog is flat/missing, disable it
+        if exog_used is False:
+            exog_train = None
+
+        model = SARIMAX(
+            series,
+            exog=exog_train,
+            order=(1, 1, 1),
+            seasonal_order=(1, 1, 1, 12),
+            enforce_stationarity=False,
+            enforce_invertibility=False,
+        )
         fit = model.fit(disp=False)
 
-        # Try to extract the sentiment coefficient (various param names)
+        # Try to fetch the 'sent' coefficient (if present)
         try:
-            names = getattr(fit, "param_names", [])
-            coef_name = next((n for n in names if "exog" in n.lower() or n.lower().startswith("x")), None)
-            if coef_name and hasattr(fit, "params"):
-                beta_sent = float(fit.params[names.index(coef_name)])
+            if exog_used and hasattr(fit, "params") and "sent" in fit.params.index:
+                beta_sent = float(fit.params["sent"])
+            elif exog_used and hasattr(fit, "params"):
+                # Fallback: take any param containing 'sent'
+                cand = [p for p in fit.params.index if "sent" in p.lower()]
+                if cand:
+                    beta_sent = float(fit.params[cand[0]])
         except Exception:
             beta_sent = None
 
-        # Build future exog: repeat the mean of the last 5 z-scored values (if exog used)
+        # Build future exog (repeat last standardized value) if exog was used
         exog_future = None
-        if used_exog and exog is not None:
-            tail = exog[-5:].astype(float).reshape(-1)
-            last_avg = float(np.mean(tail)) if len(tail) else float(exog[-1])
-            exog_future = np.full((steps, 1), last_avg)
+        if exog_used:
+            last_val = float(exog_train["sent"].iloc[-1])
+            exog_future = pd.DataFrame({"sent": np.full(steps, last_val)})
 
-        # Forecast
         forecast_res = fit.get_forecast(steps=steps, exog=exog_future)
         forecast = forecast_res.predicted_mean
         ci = forecast_res.conf_int(alpha=0.05)
 
-        # Metrics vs last 'steps' actual closes
-        metrics = calculate_metrics(series[-steps:], forecast[: len(series[-steps:])])
+        # Fallback index alignment if needed
+        if not isinstance(forecast.index, pd.DatetimeIndex):
+            forecast.index = df.index[-len(forecast):]
+            ci.index = forecast.index
 
-        # Add diagnostics (won't break callers)
-        if isinstance(metrics, dict):
-            metrics.update({
-                "exog_used": bool(used_exog),
-                "beta_sent": beta_sent,
-                "sent_mean": sent_mean,
-                "sent_std": sent_std,
-            })
+        # Metrics vs last actuals
+        metrics = calculate_metrics(series.iloc[-steps:], forecast.iloc[: min(steps, len(series))])
+        metrics["exog_used"] = bool(exog_used)
+        metrics["beta_sent"] = beta_sent
 
         return forecast, fit, ci.iloc[:, 0], ci.iloc[:, 1], metrics
-
     except Exception as e:
         logger.error(f"SARIMAX error: {e}")
         return None, None, None, None, {}
