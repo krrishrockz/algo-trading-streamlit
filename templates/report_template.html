@@ -1,0 +1,62 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>Strategy Comparison Report</title>
+  <style>
+    body {
+      font-family: Arial, sans-serif;
+      margin: 20px;
+    }
+    h1, h2 {
+      color: #2E86C1;
+    }
+    .styled-table {
+      border-collapse: collapse;
+      margin: 20px 0;
+      font-size: 14px;
+      min-width: 400px;
+      border: 1px solid #ddd;
+    }
+    .styled-table th, .styled-table td {
+      border: 1px solid #ddd;
+      padding: 8px 12px;
+    }
+    .styled-table th {
+      background-color: #f2f2f2;
+      text-align: left;
+    }
+    img {
+      max-width: 100%;
+      margin: 15px 0;
+    }
+  </style>
+</head>
+<body>
+  <h1>📄 Strategy Comparison Report</h1>
+  <h2>Stock: {{ stock }}</h2>
+  <p><b>Model Used:</b> {{ model }}</p>
+  <p><b>Accuracy:</b> {{ accuracy }}</p>
+
+  {% if shap_path %}
+    <h2>SHAP Plot</h2>
+    <img src="{{ shap_path }}" alt="SHAP Plot">
+  {% endif %}
+
+  {% if lime_path %}
+    <h2>LIME Plot</h2>
+    <img src="{{ lime_path }}" alt="LIME Plot">
+  {% endif %}
+
+  {% if chart_path %}
+    <h2>Equity Curve Comparison</h2>
+    <img src="{{ chart_path }}" alt="Equity Curve">
+  {% endif %}
+
+  <h2>📊 Benchmark Metrics</h2>
+  {{ benchmark_table | safe }}
+
+  <h2>📈 Equity Over Time</h2>
+  {{ metrics_table | safe }}
+</body>
+</html>
