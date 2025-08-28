@@ -10,11 +10,6 @@ from tensorflow.keras.models import Sequential
 from tensorflow.keras.layers import LSTM, Dense
 from sklearn.preprocessing import MinMaxScaler
 import matplotlib.pyplot as plt
-import os
-# --- Safe logging on Streamlit Cloud: ensure folder exists ---
-LOG_DIR = os.getenv("LOG_DIR", "logs")
-os.makedirs(LOG_DIR, exist_ok=True)
-LOG_FILE = os.path.join(LOG_DIR, "time_series.log")
 
 logging.basicConfig(
     filename="logs/time_series.log",
@@ -103,26 +98,32 @@ def run_sarima(df, steps=5):
 def run_sarimax(df, sentiment_series=None, steps=5):
     try:
         series = df["Close"]
-        if sentiment_series is None or sentiment_series.empty:
-            sentiment_series = pd.Series([0] * len(series), index=series.index)
+        # If no sentiment → None (not zeros)
+        exog = None
+        if sentiment_series is not None and not sentiment_series.empty:
+            s = sentiment_series.reindex(series.index).ffill()
+            if s.std(skipna=True) and not np.isnan(s.std()):
+                s = (s - s.mean()) / s.std()
+                exog = s.values.reshape(-1, 1)
 
-        model = SARIMAX(series, exog=sentiment_series, order=(1, 1, 1), seasonal_order=(1, 1, 1, 12))
+        model = SARIMAX(series, exog=exog, order=(1, 1, 1), seasonal_order=(1, 1, 1, 12))
         fit = model.fit(disp=False)
 
-        future_sentiment = np.zeros((steps,))
-        forecast_res = fit.get_forecast(steps=steps, exog=future_sentiment.reshape(-1, 1))
+        # Future exog → repeat last value
+        exog_future = None
+        if exog is not None:
+            exog_future = np.full((steps, 1), exog[-1])
+
+        forecast_res = fit.get_forecast(steps=steps, exog=exog_future)
         forecast = forecast_res.predicted_mean
         ci = forecast_res.conf_int(alpha=0.05)
-
-        if not isinstance(forecast.index, pd.DatetimeIndex):
-            forecast.index = df.index[-len(forecast):]
-            ci.index = forecast.index
 
         metrics = calculate_metrics(series[-steps:], forecast[: len(series[-steps:])])
         return forecast, fit, ci.iloc[:, 0], ci.iloc[:, 1], metrics
     except Exception as e:
         logger.error(f"SARIMAX error: {e}")
         return None, None, None, None, {}
+
 
 
 # ---------------------- Prophet ----------------------
