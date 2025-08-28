@@ -13,6 +13,8 @@ jinja2>=3.1.0
 lxml>=4.9.0
 pillow>=10.0.0
 kaleido>=0.2.1          # plotly static image export
+streamlit-autorefresh>=0.1.3
+
 
 # NLP / News
 nltk>=3.8.1
@@ -35,3 +37,4 @@ stable-baselines3==2.3.2
 gymnasium>=0.29
 shimmy>=1.3.0
 torch>=2.2.0            # CPU build auto-detected on Cloud
+
