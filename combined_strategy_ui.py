@@ -226,13 +226,30 @@ with st.sidebar:
 
 # --- Helper Functions ---
 def get_live_price(ticker):
-    data = yf.Ticker(ticker)
-    todays_data = data.history(period='1d', interval='1m')
-    if not todays_data.empty:
-        latest_row = todays_data.iloc[-1]
-        return latest_row['Close'], latest_row['Open']
-    else:
-        return None, None
+    """
+    Returns (last_trade_price, prev_close_for_change).
+    Using previous close instead of today's open gives a non-zero % even after hours.
+    """
+    t = yf.Ticker(ticker)
+    last = np.nan
+    prev_close = np.nan
+    try:
+        intr = t.history(period="1d", interval="1m")
+        if not intr.empty:
+            last = float(intr["Close"].dropna().iloc[-1])
+    except Exception:
+        pass
+    try:
+        d2 = t.history(period="2d", interval="1d")
+        if len(d2) >= 2:
+            prev_close = float(d2["Close"].iloc[-2])
+        elif len(d2) == 1:
+            prev_close = float(d2["Close"].iloc[-1])
+    except Exception:
+        pass
+    return (last if not np.isnan(last) else None,
+            prev_close if not np.isnan(prev_close) else None)
+
 
 def is_market_open():
     logger = logging.getLogger(__name__)
@@ -906,6 +923,8 @@ with tab4:
     # Plot comparison
     plot_type = st.selectbox("Select Plot Type", ["Plotly", "Matplotlib"], key="comparison_plot_type")
     
+    cmp_png = None  # will hold an in-memory PNG for downloads + report
+
     if plot_type == "Plotly":
         fig = go.Figure()
         fig.add_trace(go.Scatter(
@@ -929,7 +948,22 @@ with tab4:
             xaxis=dict(range=[start_date, end_date])
         )
         plotly_chart_unique(fig, "compare_equity")
-    
+
+        # In-memory PNG (no filesystem/Kaleido needed)
+        try:
+            import plotly.io as pio
+            cmp_png = pio.to_image(fig, format="png", scale=2, width=1200, height=500)
+            st.download_button(
+                label="📥 Download Equity Curve (PNG)",
+                data=cmp_png,
+                file_name=f"{selected_symbol}_Comparison_Equity.png",
+                mime="image/png",
+                key="dl_cmp_equity_png"
+            )
+        except Exception as e:
+            logging.warning(f"Comparison chart bytes error: {e}")
+            st.caption("💡 Tip: You can use the camera icon on the chart to export a PNG.")
+
     elif plot_type == "Matplotlib":
         fig, ax = plt.subplots(figsize=(10, 5))
         ax.plot(ml_df["Date"], ml_equity, label="ML Strategy", color="blue")
@@ -943,31 +977,20 @@ with tab4:
         plt.tight_layout()
         st.pyplot(fig)
 
-    # Save equity curve
-    chart_filename = f"{selected_symbol}_Comparison_Equity.png"
-    saved = False
-    try:
-        if plot_type == "Plotly":
-            # already rendered above; try to write a PNG if Kaleido is available
-            import plotly.io as pio
-            pio.write_image(fig, chart_filename, engine="kaleido", width=1000, height=600)
-            saved = True
-            st.caption("💡 Tip: You can also use the camera icon on the chart.")
-        else:  # Matplotlib
-            fig.savefig(chart_filename, dpi=150, bbox_inches="tight")
-            saved = True
-    except Exception as e:
-        logging.warning(f"Comparison chart save error: {e}")
-
-    if saved and os.path.exists(chart_filename):
-        with open(chart_filename, "rb") as f:
+        # Optional: Matplotlib to PNG bytes for download
+        try:
+            buf = io.BytesIO()
+            fig.savefig(buf, format="png", dpi=150, bbox_inches="tight")
+            cmp_png = buf.getvalue()
             st.download_button(
                 label="📥 Download Equity Curve (PNG)",
-                data=f,
-                file_name=chart_filename,
-                mime="image/png"
+                data=cmp_png,
+                file_name=f"{selected_symbol}_Comparison_Equity.png",
+                mime="image/png",
+                key="dl_cmp_equity_png_mat"
             )
-
+        except Exception as e:
+            logging.warning(f"Matplotlib comparison bytes error: {e}")
 
     # Display metrics
     st.markdown("### 📊 Performance Metrics")
@@ -993,7 +1016,7 @@ with tab4:
             acc = st.session_state.get("ml_accuracy", 0.0)  # if you store true accuracy
             shap_path = st.session_state.get("shap_plot_path", "")
             lime_path = st.session_state.get("lime_plot_path", "")
-            chart_path = chart_filename if "chart_filename" in locals() and os.path.exists(chart_filename) else ""
+            chart_path = ""  # file-based chart may not exist on Cloud; we’ll embed bytes below
 
             # Tables for the report
             benchmark_df = pd.DataFrame({
@@ -1019,10 +1042,18 @@ with tab4:
                     pass
                 return ""
 
+            # NEW: embed comparison chart from bytes if available
+            def _img_tag_from_bytes(png_bytes, title):
+                if not png_bytes:
+                    return ""
+                b64 = base64.b64encode(png_bytes).decode("ascii")
+                return f'<h3>{title}</h3><img src="data:image/png;base64,{b64}" style="max-width:100%;border:1px solid #eee;border-radius:6px;margin:6px 0;" />'
+
             visuals_html = ""
             visuals_html += _img_tag_if_exists(chart_path, "Equity Curve")
             visuals_html += _img_tag_if_exists(shap_path, "SHAP Summary")
             visuals_html += _img_tag_if_exists(lime_path, "LIME Explanation")
+            visuals_html += _img_tag_from_bytes(cmp_png, "ML vs DQN Equity (Comparison)")  # <-- ensure chart in HTML
 
             # Build the context for the report generator
             ctx = {
@@ -1040,7 +1071,7 @@ with tab4:
                 "tables": {
                     "Benchmark Summary": benchmark_df,
                     "Equity vs Worth (sample)": report_df.head(100),  # keep light; full CSV is downloadable elsewhere
-                    **( {"Visuals": visuals_html} if visuals_html else {} ),
+                    **({"Visuals": visuals_html} if visuals_html else {}),
                 },
                 "notes": (
                     "This report compares ML and DQN strategies over the selected period. "
@@ -1297,7 +1328,7 @@ with tab6:
 
                 plotly_chart_unique(fig, "live_candles")
 
-                # Export buttons
+                # Export buttons (PNG via in-memory bytes)
                 col_csv, col_png = st.columns(2)
                 with col_csv:
                     st.download_button(
@@ -1310,10 +1341,15 @@ with tab6:
                 with col_png:
                     if st.button("📸 Export PNG", key="candle_export_png_unified"):
                         try:
-                            out_name = f"{selected_symbol}_{tf}_{start_date}_to_{end_date}.png"
-                            fig.write_image(out_name, engine="kaleido", scale=2)
-                            with open(out_name, "rb") as fh:
-                                st.download_button("📥 Download PNG", data=fh, file_name=out_name, mime="image/png", key="candle_png_dl_unified")
+                            import plotly.io as pio
+                            png_bytes = pio.to_image(fig, format="png", scale=2, width=1100, height=420)
+                            st.download_button(
+                                "📥 Download PNG",
+                                data=png_bytes,
+                                file_name=f"{selected_symbol}_{tf}_{start_date}_to_{end_date}.png",
+                                mime="image/png",
+                                key="candle_png_dl_unified"
+                            )
                         except Exception as img_err:
                             st.warning(f"PNG export failed: {img_err}")
 
@@ -1348,18 +1384,30 @@ with tab6:
     # 2) KPI (single, no extra candle)
     # =========================
     try:
-        # Live price → fallback to latest daily so KPI always shows
-        current_price, open_price = get_live_price(selected_symbol)
+        # Use prev close for a meaningful % even after-hours
+        current_price, open_price = get_live_price(selected_symbol)  # keep your function call
         used_fallback = False
-        if current_price is None or np.isnan(current_price) or open_price is None or np.isnan(open_price):
+
+        # Derive prev_close (2 most recent daily bars)
+        prev_close = None
+        try:
+            d2 = yf.Ticker(selected_symbol).history(period="2d", interval="1d")
+            if len(d2) >= 2:
+                prev_close = float(d2["Close"].iloc[-2])
+            elif len(d2) == 1:
+                prev_close = float(d2["Close"].iloc[-1])
+        except Exception:
+            prev_close = None
+
+        if current_price is None or np.isnan(current_price) or prev_close is None or np.isnan(prev_close):
             daily_fb = yf.Ticker(selected_symbol).history(period="5d", interval="1d")
             if not daily_fb.empty:
                 current_price = float(daily_fb["Close"].iloc[-1])
-                open_price = float(daily_fb["Open"].iloc[-1])
+                prev_close   = float(daily_fb["Close"].iloc[-2]) if len(daily_fb) > 1 else float(daily_fb["Close"].iloc[-1])
                 used_fallback = True
 
-        if current_price is not None and open_price is not None:
-            pct = ((current_price - open_price) / open_price) * 100 if open_price else 0.0
+        if current_price is not None and prev_close is not None:
+            pct = ((current_price - prev_close) / prev_close) * 100 if prev_close else 0.0
             icon = "🚀" if pct >= 2 else "📈" if pct >= 0.5 else "💥" if pct <= -2 else "📉" if pct <= -0.5 else "🔁"
             delta_color = "normal" if pct == 0 else "inverse" if pct > 0 else "off"
             st.metric(
@@ -1398,11 +1446,11 @@ with tab6:
 
             if not live.empty:
                 last_close = float(live["Close"].iloc[-1])
-                prev_close = float(live["Close"].iloc[-2]) if len(live) > 1 else last_close
+                prev_close_intra = float(live["Close"].iloc[-2]) if len(live) > 1 else last_close
                 day_open   = float(live["Open"].iloc[0])
                 day_high   = float(live["High"].max())
                 day_low    = float(live["Low"].min())
-                pct_move   = ((last_close - prev_close) / prev_close) * 100 if prev_close else 0.0
+                pct_move   = ((last_close - prev_close_intra) / prev_close_intra) * 100 if prev_close_intra else 0.0
 
                 vol_now  = float(live["Volume"].iloc[-1]) if "Volume" in live.columns else 0.0
                 vol_avg  = float(live["Volume"].rolling(20).mean().iloc[-1]) if "Volume" in live.columns else 0.0
@@ -1493,6 +1541,22 @@ with tab6:
             # Message preview + cooldown
             st.text_area("Telegram message preview", msg, height=140)
             cooldown_min = st.number_input("Cooldown (minutes)", min_value=0, value=5, step=1)
+
+            # ---- AUTO SEND on refresh if rules triggered ----
+            if 'reasons' in locals() and reasons:
+                now = dt.datetime.now()
+                last_text = st.session_state.get("last_alert_text")
+                last_time = st.session_state.get("last_alert_time")
+                within_cooldown = bool(last_time) and ((now - last_time).total_seconds() < cooldown_min * 60)
+                if (msg != last_text) or not within_cooldown:
+                    if not show_preview_only:
+                        try:
+                            send_telegram_alert(msg)
+                            st.session_state["last_alert_text"] = msg
+                            st.session_state["last_alert_time"] = now
+                            st.info("📨 Auto alert sent (refresh driven).")
+                        except Exception as e:
+                            st.warning(f"Auto-send failed: {e}")
 
             if st.button("📤 Send Test Alert", key="send_tele_demo"):
                 now = dt.datetime.now()
