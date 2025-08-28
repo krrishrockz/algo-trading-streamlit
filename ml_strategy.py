@@ -18,8 +18,22 @@ from datetime import datetime
 import plotly.graph_objects as go
 import matplotlib.pyplot as plt
 
-# Set up logging
-logging.basicConfig(level=logging.INFO, filename="ml_strategy.log")
+import os
+import logging
+
+LOG_DIR = os.getenv("LOG_DIR", "logs")
+os.makedirs(LOG_DIR, exist_ok=True)
+LOG_FILE = os.path.join(LOG_DIR, "app.log")
+
+logging.basicConfig(
+    level=logging.INFO,
+    format="%(asctime)s - %(levelname)s - %(message)s",
+    handlers=[
+        logging.FileHandler(LOG_FILE, mode="a", encoding="utf-8"),
+        logging.StreamHandler(),
+    ],
+)
+logger = logging.getLogger(__name__)
 
 def plot_trade_signals(df, ticker, model_name, chart_type="plotly"):
     """
@@ -591,3 +605,4 @@ def compute_risk_metrics(equity: pd.Series, periods_per_year: int = 252, rf: flo
     max_dd = float(drawdown.min()) if not drawdown.empty else 0.0
 
     return {"sharpe": float(sharpe), "sortino": float(sortino), "max_dd": max_dd}
+
