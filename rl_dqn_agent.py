@@ -300,43 +300,75 @@ def plot_dqn_reward_curve(rewards, title="DQN Reward Curve"):
 
 
 def plot_dqn_results(df: pd.DataFrame, worths, trade_log: pd.DataFrame, title="DQN Strategy"):
+    """
+    Plot: Net Worth (left y) + Close Price (right y) with buy/sell markers on the price axis.
+    This fixes the 'price looks like 0' issue when net worth is ~₹10–20k and price is ~₹100–1000.
+    """
     import plotly.graph_objects as go
+    from plotly.subplots import make_subplots
 
     x_date = df["Date"] if "Date" in df.columns else pd.RangeIndex(start=0, stop=len(df), step=1)
+    price = df["Close"]
 
-    fig = go.Figure()
-    fig.add_trace(go.Scatter(x=x_date, y=worths[: len(x_date)], name="Net Worth", line=dict(color="green")))
-    fig.add_trace(go.Scatter(x=x_date, y=df["Close"], name="Close Price", line=dict(color="blue")))
+    fig = make_subplots(specs=[[{"secondary_y": True}]])
+    # Net worth (left axis)
+    fig.add_trace(
+        go.Scatter(x=x_date, y=worths[: len(x_date)], name="Net Worth", line=dict(color="green", width=2)),
+        secondary_y=False,
+    )
+    # Close price (right axis)
+    fig.add_trace(
+        go.Scatter(x=x_date, y=price, name="Close Price", line=dict(color="royalblue", width=1)),
+        secondary_y=True,
+    )
 
+    # Buy/Sell markers (on price axis so they’re not squashed at 0)
     if not trade_log.empty:
         buys = trade_log[trade_log["type"] == "Buy"]
         sells = trade_log[trade_log["type"] == "Sell"]
-
         if "Date" in df.columns and "step" in buys.columns:
-            buy_x = buys["step"].apply(lambda x: df["Date"].iloc[int(x)])
-            sell_x = sells["step"].apply(lambda x: df["Date"].iloc[int(x)])
+            buy_x = buys["step"].apply(lambda i: df["Date"].iloc[int(i)])
+            sell_x = sells["step"].apply(lambda i: df["Date"].iloc[int(i)])
         else:
             buy_x = buys["step"]
             sell_x = sells["step"]
 
-        fig.add_trace(go.Scatter(
-            x=buy_x, y=buys["price"], name="Buy",
-            mode="markers", marker=dict(symbol="triangle-up", size=10, color="green")
-        ))
-        fig.add_trace(go.Scatter(
-            x=sell_x, y=sells["price"], name="Sell",
-            mode="markers", marker=dict(symbol="triangle-down", size=10, color="red")
-        ))
+        fig.add_trace(
+            go.Scatter(
+                x=buy_x, y=buys["price"], mode="markers",
+                marker=dict(symbol="triangle-up", size=9, color="green"),
+                name="Buy"
+            ),
+            secondary_y=True,
+        )
+        fig.add_trace(
+            go.Scatter(
+                x=sell_x, y=sells["price"], mode="markers",
+                marker=dict(symbol="triangle-down", size=9, color="red"),
+                name="Sell"
+            ),
+            secondary_y=True,
+        )
 
     fig.update_layout(
         title=title,
-        xaxis_title="Date" if "Date" in df.columns else "Step",
-        yaxis_title="Value (₹)",
         template="plotly_white",
-        height=500,
-        legend=dict(orientation="h"),
+        height=520,
+        legend=dict(orientation="h", yanchor="bottom", y=-0.2),
+        margin=dict(l=40, r=40, t=40, b=40),
     )
+    fig.update_xaxes(title_text="Date")
+    fig.update_yaxes(title_text="Value (₹)", secondary_y=False)
+    fig.update_yaxes(title_text="Close Price", secondary_y=True)
+
+    # Add a small padding on the price y-axis
+    y_min = float(price.min())
+    y_max = float(price.max())
+    pad = max((y_max - y_min) * 0.05, 0.5)
+    fig.update_yaxes(range=[y_min - pad, y_max + pad], secondary_y=True)
+
     return fig
+
 
 
 def plot_dqn_net_worth(worths, title="DQN Net Worth"):
@@ -356,3 +388,4 @@ def plot_dqn_net_worth(worths, title="DQN Net Worth"):
 # shimmy>=1.3.0
 # torch>=2.2.0
 # numpy, pandas, matplotlib, streamlit, plotly
+
