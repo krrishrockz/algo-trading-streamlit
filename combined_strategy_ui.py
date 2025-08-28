@@ -21,7 +21,6 @@ from sklearn.metrics import roc_curve, auc
 import streamlit.components.v1 as components
 import gymnasium as gym
 
-
 # === ⚙️ Streamlit & Config ===
 import streamlit as st
 # Auto-refresh helper (optional)
@@ -32,6 +31,12 @@ except Exception:
     def st_autorefresh(*args, **kwargs):
         return None
 
+# ⬇️⬇️ NEW: unique-key helper for all Plotly renders ⬇️⬇️
+from uuid import uuid4
+def plotly_chart_unique(fig, prefix: str):
+    """Render a Plotly figure with a guaranteed-unique Streamlit key."""
+    st.plotly_chart(fig, use_container_width=True, key=f"{prefix}_{uuid4().hex}")
+# ⬆️⬆️ NEW helper ends ⬆️⬆️
 
 # === 📈 Forecasting Models ===
 from time_series_models import (
@@ -84,7 +89,6 @@ def send_telegram_alert(message: str):
             logger.warning(f"Telegram alert failed: {resp.text}")
     except Exception as e:
         logger.warning(f"Telegram send exception: {e}")
-
 
 # Ensure log directory exists
 log_dir = os.path.join(os.path.dirname(__file__), "logs")
@@ -220,8 +224,6 @@ with st.sidebar:
         - ☁️ Streamlit Cloud Deployment
         """)
 
-
-
 # --- Helper Functions ---
 def get_live_price(ticker):
     data = yf.Ticker(ticker)
@@ -265,7 +267,6 @@ def generate_comparison_summary(ml_result_df, ml_accuracy, dqn_worths, dqn_trade
     })
     return summary_df
 
-
 # ================= Utility: Safe Download =================
 def safe_download(label, filepath=None, default_name=None, mime_type="application/octet-stream", data_bytes=None):
     """Utility to safely create download buttons with file existence checks or direct bytes"""
@@ -290,7 +291,6 @@ def safe_download(label, filepath=None, default_name=None, mime_type="applicatio
         st.warning(f"⚠️ File {filepath or default_name} not found. Download unavailable.")
         logging.warning(f"File {filepath or default_name} not found")
 
-
 # --- Tabs ---
 tab1, tab2, tab3, tab4, tab5, tab6 = st.tabs([
     "📈 Forecasting",         # tab1
@@ -299,8 +299,8 @@ tab1, tab2, tab3, tab4, tab5, tab6 = st.tabs([
     "📊 Comparison",          # tab4
     "📰 News Sentiment",      # tab5
     "📡 Live Feed"            # tab6
-         
 ])
+
 # --- Tab 1: Forecasting ---
 with tab1:
     st.markdown("## 📈 Forecasting Module")
@@ -408,9 +408,10 @@ with tab1:
                     template="plotly_white",
                     height=500
                 )
-                st.plotly_chart(fig, use_container_width=True)
+                # Render with unique keys (two separate renders preserved)
+                plotly_chart_unique(fig, "forecast_main")
                 try:
-                    st.plotly_chart(fig, use_container_width=True)
+                    plotly_chart_unique(fig, "forecast_again")
                     st.caption("💡 Use the camera icon on the chart to export as PNG.")
                     logging.info(f"Saved forecast chart to {chart_filename}")
                 except Exception as e:
@@ -479,7 +480,6 @@ with tab1:
             logging.error(f"Forecasting error: {e}")
 
 # --- Tab 2: ML Strategy ---
-
 with tab2:
     st.markdown("## 📊 Machine Learning Strategy")
     st.markdown("Train ML models to generate trading signals and analyze performance.")
@@ -551,7 +551,7 @@ with tab2:
             st.markdown("### 📈 Trade Signals")
             chart_filename = f"{selected_symbol}_{ml_model}_Signals.png"
             fig = plot_trade_signals(df, selected_symbol, ml_model, chart_type=chart_mode)
-            st.plotly_chart(fig, use_container_width=True)
+            plotly_chart_unique(fig, "ml_signals")
 
             import plotly.io as pio
             chart_saved = False
@@ -578,7 +578,6 @@ with tab2:
                 mime_type="image/png"
             )
 
-
             # ================= Equity Curve =================
             st.markdown("### 💰 Equity Curve")
             equity_filename = f"{selected_symbol}_{ml_model}_Equity.png"
@@ -594,7 +593,7 @@ with tab2:
             if equity_curve and len(equity_curve) > 0:
                 fig = go.Figure()
                 fig.add_trace(go.Scatter(x=df["Date"][-len(equity_curve):], y=equity_curve, name="Equity"))
-                st.plotly_chart(fig, use_container_width=True)
+                plotly_chart_unique(fig, "ml_equity")
                 try:
                     import plotly.io as pio
                     pio.write_image(fig, equity_filename, engine="kaleido", width=800, height=600)
@@ -625,7 +624,7 @@ with tab2:
             st.markdown("### 📋 Confusion Matrix")
             if cm is not None:
                 fig_cm = go.Figure(data=go.Heatmap(z=cm, x=["Sell","Hold","Buy"], y=["Sell","Hold","Buy"], colorscale="Viridis"))
-                st.plotly_chart(fig_cm, use_container_width=True)
+                plotly_chart_unique(fig_cm, "ml_confmat")
                 safe_download(
                     label="📥 Download Confusion Matrix",
                     data_bytes=fig_cm.to_json().encode("utf-8"),
@@ -649,7 +648,7 @@ with tab2:
                             fpr, tpr, _ = roc_curve(y_true_bin[:, i], y_pred_prob[:, i])
                             roc_auc = auc(fpr, tpr)
                             fig_roc.add_trace(go.Scatter(x=fpr, y=tpr, mode="lines", name=f"Class {[-1,0,1][i]} (AUC={roc_auc:.2f})"))
-                        st.plotly_chart(fig_roc, use_container_width=True)
+                        plotly_chart_unique(fig_roc, "ml_roc")
                         safe_download(
                             label="📥 Download ROC Curve",
                             data_bytes=fig_roc.to_json().encode("utf-8"),
@@ -666,7 +665,7 @@ with tab2:
                     results = generate_explainability(df, trained_model, ml_model)
                     st.session_state.explainability_results = results
                     if results.get("shap_bar"):
-                        st.plotly_chart(results["shap_bar"], use_container_width=True)
+                        plotly_chart_unique(results["shap_bar"], "ml_shap_bar")
                         safe_download(
                             label="📥 Download SHAP Bar",
                             data_bytes=results["shap_bar"].to_json().encode("utf-8"),
@@ -674,7 +673,7 @@ with tab2:
                             mime_type="application/json"
                         )
                     if results.get("shap_beeswarm"):
-                        st.plotly_chart(results["shap_beeswarm"], use_container_width=True)
+                        plotly_chart_unique(results["shap_beeswarm"], "ml_shap_beeswarm")
                         safe_download(
                             label="📥 Download SHAP Beeswarm",
                             data_bytes=results["shap_beeswarm"].to_json().encode("utf-8"),
@@ -682,7 +681,7 @@ with tab2:
                             mime_type="application/json"
                         )
                     if results.get("lime_plot"):
-                        st.plotly_chart(results["lime_plot"], use_container_width=True)
+                        plotly_chart_unique(results["lime_plot"], "ml_lime")
                         safe_download(
                             label="📥 Download LIME",
                             data_bytes=results["lime_plot"].to_json().encode("utf-8"),
@@ -804,12 +803,11 @@ with tab3:
 
             # Plot trade chart
             fig = plot_dqn_results(df, worths, trade_log, title=f"{selected_symbol} – DQN Strategy")
-            st.plotly_chart(fig, use_container_width=True)
-
+            plotly_chart_unique(fig, "dqn_trades")
             # Save equity curve (optional)
             chart_filename = f"{selected_symbol}_DQN_Equity.png"
             try:
-                st.plotly_chart(fig, use_container_width=True)
+                plotly_chart_unique(fig, "dqn_trades_again")
                 st.caption("💡 Use the camera icon on the chart to export as PNG.")
                 with open(chart_filename, "rb") as f:
                     st.download_button(
@@ -853,8 +851,6 @@ with tab3:
         except Exception as e:
             st.error(f"❌ Error in DQN Strategy: {e}")
             logging.error(f"DQN Strategy error: {e}")
-
-
 
 # --- Tab 4: Strategy Comparison ---
 with tab4:
@@ -933,7 +929,7 @@ with tab4:
             height=500,
             xaxis=dict(range=[start_date, end_date])
         )
-        st.plotly_chart(fig, use_container_width=True)
+        plotly_chart_unique(fig, "compare_equity")
     
     elif plot_type == "Matplotlib":
         fig, ax = plt.subplots(figsize=(10, 5))
@@ -952,7 +948,7 @@ with tab4:
     chart_filename = f"{selected_symbol}_Comparison_Equity.png"
     try:
         if plot_type == "Plotly":
-            st.plotly_chart(fig, use_container_width=True)
+            plotly_chart_unique(fig, "compare_equity_again")
             st.caption("💡 Use the camera icon on the chart to export as PNG.")
         elif plot_type == "Matplotlib":
             fig.savefig(chart_filename)
@@ -1073,9 +1069,6 @@ with tab4:
             st.error(f"❌ Failed to generate report: {e}")
             logging.error(f"Report generation error: {e}")
 
-   
-
-   
 # --- Tab 5: News Sentiment ---
 with tab5:
     st.subheader(f"📰 News Sentiment for {selected_symbol}")
@@ -1101,7 +1094,7 @@ with tab5:
                 counts = news_df['Sentiment'].value_counts().reindex(['Positive','Neutral','Negative']).fillna(0).astype(int)
                 bar_fig = go.Figure(data=[go.Bar(x=counts.index.tolist(), y=counts.values.tolist())])
                 bar_fig.update_layout(title=f"Headline Counts by Sentiment – {selected_symbol}", height=300, xaxis_title="Sentiment", yaxis_title="Count")
-                st.plotly_chart(bar_fig, use_container_width=True)
+                plotly_chart_unique(bar_fig, "news_bar")
             # --- Daily average sentiment over time ---
             show_daily_line = st.checkbox('Show daily average sentiment line', value=True, key='news_daily_line')
             try:
@@ -1117,14 +1110,12 @@ with tab5:
                         hovertemplate='Date: %{x}<br>Avg: %{y:.3f}<br>Headlines: %{customdata}<extra></extra>'
                     )])
                     line_fig.update_layout(title=f"Daily Avg Sentiment – {selected_symbol}", height=300, xaxis_title="Date", yaxis_title="Avg Compound Score")
-                    st.plotly_chart(line_fig, use_container_width=True)
+                    plotly_chart_unique(line_fig, "news_daily")
                 # CSV download for daily averages
                 daily_csv = grouped.rename(columns={'avg_score':'AvgScore','count':'Headlines'}).to_csv(index=False).encode()
                 st.download_button('📥 Download Daily Averages (CSV)', data=daily_csv, file_name=f'{selected_symbol}_daily_sentiment.csv')
             except Exception as e:
                 logging.warning(f"Daily sentiment plot failed: {e}")
-
-
 
             # Tabs for sentiment breakdown
             tab_pos, tab_neu, tab_neg, tab_all = st.tabs(["🟢 Positive", "🟡 Neutral", "🔴 Negative", "📋 All News"])
@@ -1162,7 +1153,7 @@ with tab5:
                 marker=dict(colors=["#6BCB77", "#FFD93D", "#FF6B6B"])
             )])
             fig.update_layout(title=f"Sentiment Pie – {selected_symbol}", height=400)
-            st.plotly_chart(fig, use_container_width=True)
+            plotly_chart_unique(fig, "news_pie")
 
             # CSV download
             csv = news_df.to_csv(index=False).encode()
@@ -1298,7 +1289,7 @@ with tab6:
                 if hide_non_trading and tf != "1d":
                     fig.update_xaxes(rangebreaks=_rangebreaks_trading_hours())
 
-                st.plotly_chart(fig, use_container_width=True)
+                plotly_chart_unique(fig, "live_candles")
 
                 # Export buttons
                 col_csv, col_png = st.columns(2)
@@ -1342,7 +1333,7 @@ with tab6:
                         yaxis_title="Price",
                     )
                     vol_fig.update_yaxes(range=[vmin - vpad, vmax + vpad])
-                    st.plotly_chart(vol_fig, use_container_width=True)
+                    plotly_chart_unique(vol_fig, "live_volatility")
 
     except Exception as e:
         st.warning(f"Candlestick error: {e}")
@@ -1524,6 +1515,3 @@ with tab6:
                 st.caption(f"Last alert at **{ts}**")
         except Exception as e:
             st.warning(f"Alert demo error: {e}")
-
-
-
