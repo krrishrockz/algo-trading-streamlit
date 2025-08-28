@@ -576,6 +576,13 @@ with tab1:
                 logging.warning(f"Metrics computation issue: {_merr}")
                 st.warning("Cannot calculate accuracy metrics due to a computation issue.")
 
+            # ---- SARIMAX diagnostics: show whether exogenous sentiment was used
+            if forecast_model == "SARIMAX" and isinstance(metrics, dict) and "exog_used" in metrics:
+                used = "Yes ✅" if metrics.get("exog_used") else "No (flat/missing) ⚠️"
+                beta = metrics.get("beta_sent")
+                beta_txt = "—" if (beta is None or (isinstance(beta, float) and np.isnan(beta))) else f"{beta:.3f}"
+                st.caption(f"SARIMAX exogenous sentiment used: **{used}** | β_sent: **{beta_txt}**")
+
             # ---------- Downloads (Current + stash for reruns) ----------
             export_df = pd.DataFrame(
                 {
@@ -632,6 +639,7 @@ with tab1:
         except Exception as e:
             st.error(f"🚨 Forecasting Error: {e}")
             logging.error(f"Forecasting error: {e}")
+
 
 
 # --- Tab 2: ML Strategy ---
