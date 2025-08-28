@@ -89,14 +89,16 @@ def _get_analyzer():
 # ------------------------------------------------------------
 # Headline fetching (Google News RSS)
 # ------------------------------------------------------------
+from urllib.parse import quote_plus
+
 def _google_news_feed_url(query: str) -> str:
     """
     Build a Google News RSS search URL tuned for India/English feeds.
+    Uses quote_plus (NOT nltk.re) so feeds actually return results.
     """
-    # You can tweak the query if you want broader coverage (e.g. add 'stock OR shares').
-    # We also add when:7d via "q={query} when:7d" pattern by using 'q=' param directly.
-    q = f"{query} stock when:7d"
-    return f"https://news.google.com/rss/search?q={nltk.re.sub('[ ]+', '%20', q)}&hl=en-IN&gl=IN&ceid=IN:en"
+    q = f'{query} (stock OR shares) when:7d'
+    return f"https://news.google.com/rss/search?q={quote_plus(q)}&hl=en-IN&gl=IN&ceid=IN:en"
+
 
 
 def fetch_headlines_google_news(
@@ -105,34 +107,42 @@ def fetch_headlines_google_news(
     """
     Fetch recent headlines for a symbol from Google News RSS.
 
-    Returns a DataFrame with columns: ['published', 'title', 'link'] in UTC.
-    Empty DataFrame if nothing is found or on error.
+    We broaden the query:
+      - strip .NS/.BO → base ticker
+      - try to fetch yfinance shortName/longName for the company
+      - search for:  "<base>" OR "<company>"  (stock OR shares) when:7d
     """
     try:
-        url = _google_news_feed_url(symbol)
-        # feedparser is robust; it handles redirects and tls automatically.
+        base = symbol.replace(".NS", "").replace(".BO", "").strip()
+        company = None
+        try:
+            import yfinance as yf
+            info = yf.Ticker(symbol).info or {}
+            company = info.get("shortName") or info.get("longName")
+        except Exception:
+            company = None
+
+        q = f'"{base}"'
+        if company:
+            q = f'("{base}" OR "{company}")'
+
+        url = _google_news_feed_url(q)
         feed = feedparser.parse(url)
+
         rows = []
         for entry in feed.get("entries", [])[:max_items]:
-            t = entry.get("title", "").strip()
-            lnk = entry.get("link", "").strip()
-            # published_parsed is a time.struct_time (UTC)
-            p = entry.get("published_parsed")
-            if p is None:
-                # try 'updated_parsed' fallback
-                p = entry.get("updated_parsed")
-            if p:
-                pub_dt_utc = dt.datetime.fromtimestamp(time.mktime(p), tz=dt.timezone.utc)
-            else:
-                # If no time available, skip
+            t = (entry.get("title") or "").strip()
+            lnk = (entry.get("link") or "").strip()
+            p = entry.get("published_parsed") or entry.get("updated_parsed")
+            if not p:
                 continue
+            pub_dt_utc = dt.datetime.fromtimestamp(time.mktime(p), tz=dt.timezone.utc)
             rows.append({"published": pub_dt_utc, "title": t, "link": lnk})
 
         if not rows:
             return pd.DataFrame(columns=["published", "title", "link"])
 
-        df = pd.DataFrame(rows)
-        return df
+        return pd.DataFrame(rows)
 
     except Exception as e:
         print(f"⚠️ fetch_headlines_google_news error: {e}")
@@ -222,3 +232,4 @@ def align_sentiment_to_index(sent_daily: pd.Series, target_index: pd.DatetimeInd
     aligned = sent.reindex(target_dates).ffill().fillna(0.0)
     aligned.index = target_index  # restore original index
     return aligned
+
