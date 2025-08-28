@@ -306,7 +306,7 @@ def generate_comparison_summary(ml_result_df, ml_accuracy, dqn_worths, dqn_trade
     return summary_df
 
 # ================= Utility: Safe Download =================
-def safe_download(label, filepath=None, default_name=None, mime_type="application/octet-stream", data_bytes=None):
+def safe_download(label, filepath=None, default_name=None, mime_type="application/octet-stream", data_bytes=None, show_warning=False):
     """Utility to safely create download buttons with file existence checks or direct bytes"""
     import os, streamlit as st, logging
     if data_bytes is not None:
@@ -326,8 +326,10 @@ def safe_download(label, filepath=None, default_name=None, mime_type="applicatio
             mime=mime_type
         )
     else:
-        st.warning(f"⚠️ File {filepath or default_name} not found. Download unavailable.")
+        if show_warning:
+            st.warning(f"⚠️ File {filepath or default_name} not found. Download unavailable.")
         logging.warning(f"File {filepath or default_name} not found")
+
 
 # --- Tabs ---
 tab1, tab2, tab3, tab4, tab5, tab6 = st.tabs([
@@ -343,6 +345,13 @@ tab1, tab2, tab3, tab4, tab5, tab6 = st.tabs([
 with tab1:
     st.markdown("## 📈 Forecasting Module")
     st.markdown("Use time series models to predict future stock prices.")
+    # --- Quick re-render of forecast downloads on rerun (no recompute needed) ---
+    if "_downloads" in st.session_state:
+        if st.session_state["_downloads"].get("forecast_csv"):
+            dl_button("forecast_csv", "📥 Download Forecast CSV", "forecast.csv", key="dl_forecast_csv_rerun")
+        if st.session_state["_downloads"].get("forecast_metrics_csv"):
+            dl_button("forecast_metrics_csv", "📊 Download Metrics CSV", "forecast_metrics.csv", key="dl_forecast_metrics_csv_rerun")
+
 
     col1, col2 = st.columns(2)
     with col1:
@@ -615,7 +624,8 @@ with tab2:
                 label="📥 Download Signals Chart",
                 filepath=chart_filename if chart_saved else None,
                 default_name=chart_filename,
-                mime_type="image/png"
+                mime_type="image/png",
+                show_warning=False
             )
 
             # ================= Equity Curve =================
@@ -644,7 +654,8 @@ with tab2:
                     label="📥 Download Equity Curve",
                     filepath=equity_filename if equity_saved else None,
                     default_name=equity_filename,
-                    mime_type="image/png"
+                    mime_type="image/png",
+                    show_warning=False
                 )
 
             # ================= Performance Metrics =================
@@ -1451,17 +1462,17 @@ with tab6:
 
         if current_price is not None and prev_close is not None:
             pct = ((current_price - prev_close) / prev_close) * 100 if prev_close else 0.0
-            icon = "🚀" if pct >= 2 else "📈" if pct >= 0.5 else "💥" if pct <= -2 else "📉" if pct <= -0.5 else "🔁"
-            delta_color = "normal" if pct == 0 else "inverse" if pct > 0 else "off"
+            arrow = "↑" if pct >= 0 else "↓"
             st.metric(
-                label=f"{icon} {selected_symbol} Live Price" + (" (daily)" if used_fallback else ""),
+                label=f"📘 {selected_symbol} Live Price" + (" (daily)" if used_fallback else ""),
                 value=f"₹{current_price:.2f}",
-                delta=f"{pct:.2f}%",
-                delta_color=delta_color
+                delta=f"{arrow} {abs(pct):.2f}%",
+                delta_color="normal"  # green for positive, red for negative
             )
             st.caption(("📅 Using last daily data (market closed). " if used_fallback else "") + f"Auto-refresh every {refresh_rate} sec.")
         else:
             st.warning("⚠️ Could not fetch price for KPI.")
+
     except Exception as e:
         st.warning(f"KPI error: {e}")
 
