@@ -424,7 +424,7 @@ with tab1:
             
             # Validate data for LSTM
             if forecast_model == "LSTM" and len(df) < 60:
-                st.error(f"❌ Insufficient data points ({len(df)}) for LSTM. Requires at least 60 days.")
+                st.error(f"❌ Insufficient data points ({len[df]) for LSTM. Requires at least 60 days.")
                 logger.error(f"Insufficient data points ({len(df)}) for LSTM. Requires at least 60 days.")
                 st.stop()
 
@@ -474,7 +474,39 @@ with tab1:
                 logger.error(f"{forecast_model} failed to generate results")
                 st.stop()
 
-            forecast_df = pd.DataFrame({"Forecast": forecast_result.values}, index=forecast_result.index)
+            # ------------------------------------------------------------------
+            # Build forecast DataFrame
+            forecast_df = pd.DataFrame({"Forecast": forecast_result.values}, index=pd.to_datetime(forecast_result.index))
+
+            # --- ADDED: Normalize forecast index so it is strictly forward and on business days (Mon–Fri)
+            try:
+                last_hist_date = pd.to_datetime(df.index.max()).normalize()
+
+                # Ensure ascending order (some models may output otherwise)
+                forecast_df = forecast_df.sort_index()
+
+                # Attach CI bands if provided (align lengths defensively)
+                if lower is not None and upper is not None:
+                    lower = pd.Series(np.asarray(lower).ravel()[:len(forecast_df)], index=forecast_df.index, name="Lower CI")
+                    upper = pd.Series(np.asarray(upper).ravel()[:len(forecast_df)], index=forecast_df.index, name="Upper CI")
+                    forecast_df["Lower CI"] = lower
+                    forecast_df["Upper CI"] = upper
+
+                # Keep only future rows
+                forecast_df = forecast_df[forecast_df.index.normalize() > last_hist_date]
+
+                # Rebuild index to business days with the same length (skip weekends)
+                if len(forecast_df) > 0:
+                    bidx = pd.bdate_range(last_hist_date + pd.Timedelta(days=1), periods=len(forecast_df), freq="B")
+                    forecast_df.index = bidx
+
+                # Finally, cap to the slider length
+                if len(forecast_df) > forecast_days:
+                    forecast_df = forecast_df.iloc[:forecast_days]
+            except Exception as _e:
+                logging.warning(f"Forecast index normalization failed: {_e}")
+            # ------------------------------------------------------------------
+
             chart_filename = f"{selected_symbol}_{forecast_model}_Forecast.png" if not export_svg else f"{selected_symbol}_{forecast_model}_Forecast.svg"
 
             st.markdown("### 📊 Forecast Chart")
@@ -482,7 +514,9 @@ with tab1:
                 fig = go.Figure()
                 fig.add_trace(go.Scatter(x=df.index, y=df["Close"], name="Historical", line=dict(color="blue")))
                 fig.add_trace(go.Scatter(x=forecast_df.index, y=forecast_df["Forecast"], name="Forecast", line=dict(color="orange")))
-                if lower is not None and upper is not None:
+                if "Lower CI" in forecast_df.columns and "Upper CI" in forecast_df.columns:
+                    lower = forecast_df["Lower CI"]
+                    upper = forecast_df["Upper CI"]
                     fig.add_trace(go.Scatter(
                         x=forecast_df.index.tolist() + forecast_df.index[::-1].tolist(),
                         y=upper.tolist() + lower[::-1].tolist(),
@@ -506,8 +540,8 @@ with tab1:
                 plt.figure(figsize=(10, 5))
                 plt.plot(df.index, df["Close"], label="Historical", color="steelblue")
                 plt.plot(forecast_df.index, forecast_df["Forecast"], label="Forecast", linestyle="--", color="orange")
-                if lower is not None and upper is not None:
-                    plt.fill_between(forecast_df.index, lower, upper, color="orange", alpha=0.2, label="Confidence Interval")
+                if "Lower CI" in forecast_df.columns and "Upper CI" in forecast_df.columns:
+                    plt.fill_between(forecast_df.index, forecast_df["Lower CI"], forecast_df["Upper CI"], color="orange", alpha=0.2, label="Confidence Interval")
                 plt.title(f"{selected_symbol} – {forecast_model} Forecast")
                 plt.xlabel("Date")
                 plt.ylabel("Price (INR)")
@@ -538,8 +572,8 @@ with tab1:
             export_df = pd.DataFrame({
                 "Date": forecast_df.index,
                 "Forecast": forecast_df["Forecast"],
-                "Lower CI": lower,
-                "Upper CI": upper
+                "Lower CI": forecast_df["Lower CI"] if "Lower CI" in forecast_df.columns else None,
+                "Upper CI": forecast_df["Upper CI"] if "Upper CI" in forecast_df.columns else None
             })
            # st.download_button("📥 Download Forecast CSV", export_df.to_csv(index=False).encode(), file_name="forecast.csv")
 
@@ -591,6 +625,7 @@ with tab1:
         except Exception as e:
             st.error(f"🚨 Forecasting Error: {e}")
             logging.error(f"Forecasting error: {e}")
+
 
 # --- Tab 2: ML Strategy ---
 with tab2:
