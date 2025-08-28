@@ -352,6 +352,50 @@ with tab1:
         if st.session_state["_downloads"].get("forecast_metrics_csv"):
             dl_button("forecast_metrics_csv", "📊 Download Metrics CSV", "forecast_metrics.csv", key="dl_forecast_metrics_csv_rerun")
 
+    # --- ADDED: Restore the last forecast (chart + metrics) on any rerun ---
+    _fc = st.session_state.get("_forecast_ctx")
+    if _fc:
+        try:
+            _hist_idx = pd.to_datetime(_fc["hist_index"])
+            _hist_close = pd.Series(_fc["hist_close"], index=_hist_idx, name="Close")
+
+            _fexp = pd.DataFrame(_fc["forecast_df"])
+            if "Date" in _fexp.columns:
+                _fexp["Date"] = pd.to_datetime(_fexp["Date"])
+                _fexp.set_index("Date", inplace=True)
+
+            _lower = _fexp["Lower CI"] if "Lower CI" in _fexp.columns else None
+            _upper = _fexp["Upper CI"] if "Upper CI" in _fexp.columns else None
+            _forecast_series = _fexp["Forecast"]
+
+            _fig_restore = go.Figure()
+            _fig_restore.add_trace(go.Scatter(x=_hist_idx, y=_hist_close, name="Historical", line=dict(color="blue")))
+            _fig_restore.add_trace(go.Scatter(x=_forecast_series.index, y=_forecast_series.values, name="Forecast", line=dict(color="orange")))
+            if _lower is not None and _upper is not None:
+                _fig_restore.add_trace(go.Scatter(
+                    x=_forecast_series.index.tolist() + _forecast_series.index[::-1].tolist(),
+                    y=_upper.tolist() + _lower[::-1].tolist(),
+                    fill="toself",
+                    fillcolor="rgba(255,165,0,0.2)",
+                    line=dict(color="rgba(255,255,255,0)"),
+                    name="Confidence Interval",
+                    showlegend=True
+                ))
+            _fig_restore.update_layout(
+                title=f"{_fc['selected_symbol']} – {_fc['forecast_model']} Forecast",
+                xaxis_title="Date", yaxis_title="Price (INR)",
+                template="plotly_white", height=500
+            )
+            plotly_chart_unique(_fig_restore, "forecast_restore")
+
+            _rmse, _mae, _mape = _fc.get("rmse"), _fc.get("mae"), _fc.get("mape")
+            if _rmse is not None and _mae is not None and _mape is not None:
+                _c1, _c2, _c3 = st.columns(3)
+                _c1.metric("RMSE", f"{_rmse:.2f}")
+                _c2.metric("MAE", f"{_mae:.2f}")
+                _c3.metric("MAPE", f"{_mape:.2f}%")
+        except Exception as _e:
+            logging.warning(f"Forecast restore failed: {_e}")
 
     col1, col2 = st.columns(2)
     with col1:
@@ -514,6 +558,27 @@ with tab1:
                 "Value": [rmse, mae, mape]
             }).to_csv(index=False).encode()
             #st.download_button("📊 Download Metrics CSV", metrics_csv, file_name="forecast_metrics.csv")
+
+            # --- ADDED: Persist latest forecast context so it survives reruns ---
+            try:
+                _export_df_for_store = export_df.copy()
+                if "Date" not in _export_df_for_store.columns:
+                    _export_df_for_store.insert(0, "Date", forecast_df.index)
+                _export_df_for_store["Date"] = pd.to_datetime(_export_df_for_store["Date"]).astype(str)
+
+                st.session_state["_forecast_ctx"] = {
+                    "selected_symbol": str(selected_symbol),
+                    "forecast_model": str(forecast_model),
+                    "hist_index": pd.to_datetime(df.index).astype(str).tolist(),
+                    "hist_close": pd.to_numeric(df["Close"], errors="coerce").astype(float).tolist(),
+                    "forecast_df": _export_df_for_store.to_dict(orient="list"),
+                    "rmse": float(rmse) if "rmse" in locals() else None,
+                    "mae": float(mae) if "mae" in locals() else None,
+                    "mape": float(mape) if "mape" in locals() else None,
+                }
+            except Exception as _e:
+                logging.warning(f"Could not persist forecast context: {_e}")
+
             # Prepare/stash bytes once
             forecast_csv_bytes = export_df.to_csv(index=False).encode()
             put_download("forecast_csv", forecast_csv_bytes, "text/csv")
@@ -522,7 +587,6 @@ with tab1:
             # Build buttons from stashed bytes (survive reruns)
             dl_button("forecast_csv", "📥 Download Forecast CSV", "forecast.csv", key="dl_forecast_csv")
             dl_button("forecast_metrics_csv", "📊 Download Metrics CSV", "forecast_metrics.csv", key="dl_forecast_metrics_csv")
-
 
         except Exception as e:
             st.error(f"🚨 Forecasting Error: {e}")
