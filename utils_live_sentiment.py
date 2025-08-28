@@ -6,33 +6,80 @@ from news_sentiment_utils import fetch_google_news_sentiment
 @st.cache_data(ttl=180)  # refresh every 3 minutes
 def get_live_daily_sentiment(ticker: str) -> pd.Series:
     """
-    Pull latest Google News headlines, score with VADER (already in your util),
-    and return a daily Series of average sentiment (index normalized to date).
+    Returns a DAILY sentiment signal (float) indexed by date, with real variation.
+    1) Pull latest headlines (e.g., Google News / RSS)
+    2) Score with VADER compound
+    3) Aggregate by date
+    4) Z-score normalize & clip to avoid flat/zero variance series
     """
-    df = fetch_google_news_sentiment(ticker=ticker.replace(".NS", ""))
-    if df is None or df.empty:
+    import pandas as pd
+    import numpy as np
+    from nltk.sentiment.vader import SentimentIntensityAnalyzer
+    import feedparser
+    from datetime import datetime
+
+    # 1) Fetch headlines (adjust your feed / query here)
+    # Example: Google News RSS search
+    query = ticker.replace(" ", "+")
+    url = f"https://news.google.com/rss/search?q={query}&hl=en-IN&gl=IN&ceid=IN:en"
+    feed = feedparser.parse(url)
+
+    rows = []
+    for entry in feed.entries[:50]:
+        # published_parsed may be missing; guard it
+        try:
+            dt_pub = datetime(*entry.published_parsed[:6])
+        except Exception:
+            continue
+        rows.append({"published": pd.Timestamp(dt_pub).normalize(), "title": entry.title or ""})
+
+    if not rows:
         return pd.Series(dtype=float)
 
-    # Ensure datetime + normalize to dates
-    pub = pd.to_datetime(df["Published"], errors="coerce").dt.normalize()
-    scores = pd.to_numeric(df["Score"], errors="coerce")
-    daily = (
-        pd.DataFrame({"Published": pub, "Score": scores})
-        .dropna()
-        .groupby("Published")["Score"].mean()
-        .sort_index()
-    )
+    df = pd.DataFrame(rows)
+    sia = SentimentIntensityAnalyzer()
+    df["compound"] = df["title"].astype(str).apply(lambda x: sia.polarity_scores(x)["compound"])
+
+    # 2) Aggregate by day
+    daily = df.groupby("published")["compound"].mean().sort_index()
+
+    # 3) Normalize (z-score) to ensure non-flat signal
+    if daily.std(ddof=0) > 1e-6:
+        z = (daily - daily.mean()) / (daily.std(ddof=0) + 1e-9)
+        daily = z.clip(-3, 3)
+    else:
+        # If still near-constant, return empty to signal "no usable exog"
+        return pd.Series(dtype=float)
+
+    daily.index.name = "Date"
     return daily
+
 
 def align_sentiment_to_index(sent_daily: pd.Series, price_index: pd.DatetimeIndex) -> pd.Series:
     """
-    Forward-fill daily sentiment onto your price index (e.g., business-day close series).
-    Returns a float Series aligned 1:1 to price_index; neutral (0.0) if no news.
+    Align daily sentiment to your price index:
+    - Reindex to DAILY dates covering price range
+    - FFill to cover missing days
+    - Reindex again to price_index (keeps business days)
+    - Return standardized (z-score) again on the aligned slice
     """
-    if sent_daily is None or sent_daily.empty:
-        return pd.Series(0.0, index=price_index)
+    import pandas as pd
+    import numpy as np
 
-    # Normalize the price index to dates, then forward fill sentiment
-    idx = pd.DatetimeIndex(price_index).normalize()
-    s = sent_daily.reindex(idx).ffill()
-    return s.fillna(0.0)
+    if sent_daily is None or len(sent_daily) == 0:
+        return pd.Series(dtype=float, index=price_index)
+
+    # Cover the price index span
+    full_daily = sent_daily.reindex(
+        pd.date_range(price_index.min().normalize(), price_index.max().normalize(), freq="D")
+    ).ffill()
+
+    aligned = full_daily.reindex(price_index, method="ffill")
+
+    # Standardize on the aligned window to avoid near-flat scaling after alignment
+    if aligned.std(ddof=0) <= 1e-6 or aligned.isna().all():
+        return pd.Series(dtype=float, index=price_index)
+
+    z = (aligned - aligned.mean()) / (aligned.std(ddof=0) + 1e-9)
+    return z.clip(-3, 3)
+
