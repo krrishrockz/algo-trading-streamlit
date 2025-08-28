@@ -408,15 +408,9 @@ with tab1:
                     template="plotly_white",
                     height=500
                 )
-                # Render with unique keys (two separate renders preserved)
+                # Render ONCE with a unique key
                 plotly_chart_unique(fig, "forecast_main")
-                try:
-                    plotly_chart_unique(fig, "forecast_again")
-                    st.caption("💡 Use the camera icon on the chart to export as PNG.")
-                    logging.info(f"Saved forecast chart to {chart_filename}")
-                except Exception as e:
-                    st.warning(f"⚠️ Failed to save forecast chart: {e}")
-                    logging.error(f"Failed to save forecast chart: {e}")
+                st.caption("💡 Use the camera icon on the chart to export as PNG.")
             else:
                 plt.figure(figsize=(10, 5))
                 plt.plot(df.index, df["Close"], label="Historical", color="steelblue")
@@ -458,7 +452,8 @@ with tab1:
             })
             st.download_button("📥 Download Forecast CSV", export_df.to_csv(index=False).encode(), file_name="forecast.csv")
 
-            if os.path.exists(chart_filename):
+           # Only show a chart file download when we created one (Matplotlib path)
+            if (not chart_mode.startswith("📊")) and os.path.exists(chart_filename):
                 with open(chart_filename, "rb") as f:
                     st.download_button(
                         label=f"📥 Download Chart ({'PNG' if not export_svg else 'SVG'})",
@@ -466,8 +461,6 @@ with tab1:
                         file_name=chart_filename,
                         mime="image/png" if not export_svg else "image/svg+xml"
                     )
-            else:
-                st.warning(f"⚠️ Chart file {chart_filename} not found. Download unavailable.")
 
             metrics_csv = pd.DataFrame({
                 "Metric": ["RMSE", "MAE", "MAPE"],
@@ -806,9 +799,17 @@ with tab3:
             plotly_chart_unique(fig, "dqn_trades")
             # Save equity curve (optional)
             chart_filename = f"{selected_symbol}_DQN_Equity.png"
+            saved = False
             try:
-                plotly_chart_unique(fig, "dqn_trades_again")
-                st.caption("💡 Use the camera icon on the chart to export as PNG.")
+                # we already rendered the Plotly figure above; try to write a PNG
+                import plotly.io as pio
+                pio.write_image(fig, chart_filename, engine="kaleido", width=1000, height=600)
+                saved = True
+                st.caption("💡 Tip: You can also use the camera icon on the chart.")
+            except Exception as e:
+                logging.warning(f"Failed to save DQN equity curve: {e}")
+
+            if saved and os.path.exists(chart_filename):
                 with open(chart_filename, "rb") as f:
                     st.download_button(
                         label="📥 Download DQN Equity Curve (PNG)",
@@ -816,9 +817,7 @@ with tab3:
                         file_name=chart_filename,
                         mime="image/png"
                     )
-            except Exception as e:
-                st.warning(f"⚠️ Failed to save DQN equity curve: {e}")
-                logging.error(f"Failed to save DQN equity curve: {e}")
+
 
             # Evaluate strategy
             st.markdown("### 📊 Strategy Summary")
@@ -946,12 +945,21 @@ with tab4:
 
     # Save equity curve
     chart_filename = f"{selected_symbol}_Comparison_Equity.png"
+    saved = False
     try:
         if plot_type == "Plotly":
-            plotly_chart_unique(fig, "compare_equity_again")
-            st.caption("💡 Use the camera icon on the chart to export as PNG.")
-        elif plot_type == "Matplotlib":
-            fig.savefig(chart_filename)
+            # already rendered above; try to write a PNG if Kaleido is available
+            import plotly.io as pio
+            pio.write_image(fig, chart_filename, engine="kaleido", width=1000, height=600)
+            saved = True
+            st.caption("💡 Tip: You can also use the camera icon on the chart.")
+        else:  # Matplotlib
+            fig.savefig(chart_filename, dpi=150, bbox_inches="tight")
+            saved = True
+    except Exception as e:
+        logging.warning(f"Comparison chart save error: {e}")
+
+    if saved and os.path.exists(chart_filename):
         with open(chart_filename, "rb") as f:
             st.download_button(
                 label="📥 Download Equity Curve (PNG)",
@@ -959,9 +967,7 @@ with tab4:
                 file_name=chart_filename,
                 mime="image/png"
             )
-    except Exception as e:
-        st.warning(f"⚠️ Failed to save comparison chart: {e}")
-        logging.error(f"Comparison chart save error: {e}")
+
 
     # Display metrics
     st.markdown("### 📊 Performance Metrics")
