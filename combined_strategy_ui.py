@@ -24,7 +24,14 @@ import gymnasium as gym
 
 # === ⚙️ Streamlit & Config ===
 import streamlit as st
-from streamlit_autorefresh import st_autorefresh
+# Auto-refresh helper (optional)
+try:
+    from streamlit_autorefresh import st_autorefresh
+except Exception:
+    # Fallback no-op if the package isn't installed (prevents hard crashes)
+    def st_autorefresh(*args, **kwargs):
+        return None
+
 
 # === 📈 Forecasting Models ===
 from time_series_models import (
@@ -1464,3 +1471,4 @@ with tab6:
                 st.caption(f"Last alert at **{ts}**")
         except Exception as e:
             st.warning(f"Alert demo error: {e}")
+
