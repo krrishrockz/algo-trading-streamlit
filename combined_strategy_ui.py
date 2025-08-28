@@ -423,7 +423,7 @@ with tab1:
             if forecast_model == "SARIMAX" and enable_sentiment:
                 from utils_live_sentiment import get_live_daily_sentiment, align_sentiment_to_index
                 with st.spinner("📰 Pulling live news sentiment…"):
-                    sent_daily = get_live_daily_sentiment(selected_symbol)
+                    sent_daily = get_live_daily_sentiment(selected_symbol.split(".")[0])
                 sentiment_input = align_sentiment_to_index(sent_daily, df.index)
                 try:
                     if not sent_daily.empty:
