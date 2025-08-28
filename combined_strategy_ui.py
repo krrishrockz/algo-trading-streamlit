@@ -424,7 +424,7 @@ with tab1:
             
             # Validate data for LSTM
             if forecast_model == "LSTM" and len(df) < 60:
-                st.error(f"❌ Insufficient data points ({len[df]) for LSTM. Requires at least 60 days.")
+                st.error(f"❌ Insufficient data points ({len(df)}) for LSTM. Requires at least 60 days.")
                 logger.error(f"Insufficient data points ({len(df)}) for LSTM. Requires at least 60 days.")
                 st.stop()
 
@@ -1741,3 +1741,4 @@ with tab6:
                 st.caption(f"Last alert at **{ts}**")
         except Exception as e:
             st.warning(f"Alert demo error: {e}")
+
