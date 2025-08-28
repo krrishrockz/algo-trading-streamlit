@@ -45,6 +45,27 @@ from time_series_models import (
 # fetch_google_news_sentiment function must use VADER
 from vaderSentiment.vaderSentiment import SentimentIntensityAnalyzer
 
+# ---------- Stable download helpers (prevent state-loss on rerun) ----------
+def put_download(slot: str, data_bytes: bytes, mime: str):
+    """Save download bytes/mime in session_state to survive reruns."""
+    store = st.session_state.setdefault("_downloads", {})
+    store[slot] = {"data": data_bytes, "mime": mime}
+
+def dl_button(slot: str, label: str, file_name: str, *, key: str):
+    """Render a download button from stashed bytes (no recompute on rerun)."""
+    blob = st.session_state.get("_downloads", {}).get(slot)
+    if blob and blob.get("data"):
+        st.download_button(
+            label=label,
+            data=blob["data"],
+            file_name=file_name,
+            mime=blob.get("mime", "application/octet-stream"),
+            key=key,
+        )
+    else:
+        st.caption("⏳ Preparing file… run the step above first.")
+
+
 # === 🤖 ML Strategy & Evaluation ===
 from ml_strategy import (
     fetch_ohlcv_data, add_technical_indicators, create_labels,
@@ -467,7 +488,7 @@ with tab1:
                 "Lower CI": lower,
                 "Upper CI": upper
             })
-            st.download_button("📥 Download Forecast CSV", export_df.to_csv(index=False).encode(), file_name="forecast.csv")
+           # st.download_button("📥 Download Forecast CSV", export_df.to_csv(index=False).encode(), file_name="forecast.csv")
 
            # Only show a chart file download when we created one (Matplotlib path)
             if (not chart_mode.startswith("📊")) and os.path.exists(chart_filename):
@@ -483,7 +504,16 @@ with tab1:
                 "Metric": ["RMSE", "MAE", "MAPE"],
                 "Value": [rmse, mae, mape]
             }).to_csv(index=False).encode()
-            st.download_button("📊 Download Metrics CSV", metrics_csv, file_name="forecast_metrics.csv")
+            #st.download_button("📊 Download Metrics CSV", metrics_csv, file_name="forecast_metrics.csv")
+            # Prepare/stash bytes once
+            forecast_csv_bytes = export_df.to_csv(index=False).encode()
+            put_download("forecast_csv", forecast_csv_bytes, "text/csv")
+            put_download("forecast_metrics_csv", metrics_csv, "text/csv")
+
+            # Build buttons from stashed bytes (survive reruns)
+            dl_button("forecast_csv", "📥 Download Forecast CSV", "forecast.csv", key="dl_forecast_csv")
+            dl_button("forecast_metrics_csv", "📊 Download Metrics CSV", "forecast_metrics.csv", key="dl_forecast_metrics_csv")
+
 
         except Exception as e:
             st.error(f"🚨 Forecasting Error: {e}")
@@ -1081,6 +1111,18 @@ with tab4:
 
             # 1) Always create HTML (works on Streamlit Cloud)
             html_str = generate_html_report(ctx)
+
+            # --- Ensure visuals appear in the HTML even if the report generator escapes table cells ---
+            # We append our assembled <img> HTML right before </body>.
+            try:
+                if visuals_html:
+                    html_str = html_str.replace(
+                        "</body>",
+                        f'<section style="margin-top:16px"><h2 style="font-family:Segoe UI, sans-serif;">Visuals</h2>{visuals_html}</section></body>'
+                    )
+            except Exception as _e:
+                logging.warning(f"Could not inline visuals into HTML report: {_e}")
+
             st.download_button(
                 label="📄 Download Strategy Report (HTML)",
                 data=html_str,
@@ -1105,6 +1147,7 @@ with tab4:
         except Exception as e:
             st.error(f"❌ Failed to generate report: {e}")
             logging.error(f"Report generation error: {e}")
+
 
 # --- Tab 5: News Sentiment ---
 with tab5:
@@ -1427,6 +1470,7 @@ with tab6:
     # =========================
     with st.expander("📣 Telegram alerts", expanded=True):
         st.caption("Configure simple alert rules. Click **Send Test Alert** to push a real Telegram message")
+        now_ist_str = dt.datetime.now(pytz.timezone("Asia/Kolkata")).strftime("%Y-%m-%d %H:%M:%S IST")
 
         colA, colB, colC = st.columns(3)
         with colA:
@@ -1507,13 +1551,15 @@ with tab6:
                 triggered = " | ".join(reasons) if reasons else "No rule triggered"
 
                 emoji = "🚨" if reasons else "ℹ️"
+                
+
                 msg = (
                     f"{emoji} {selected_symbol}\n"
                     f"Last: ₹{last_close:,.2f}  (Δ {pct_move:+.2f}%)\n"
                     f"Day: H {day_high:,.2f}  L {day_low:,.2f}  O {day_open:,.2f}\n"
                     f"RSI: {rsi_now:.0f}   ADX: {adx_now:.0f}\n"
                     f"Rules: {triggered}\n"
-                    f"{dt.datetime.now().strftime('%Y-%m-%d %H:%M:%S')}"
+                    f"{now_ist_str}"
                 )
             else:
                 # Fallback daily (for demo when intraday unavailable)
@@ -1535,7 +1581,7 @@ with tab6:
                         f"Day: H {day_high:,.2f}  L {day_low:,.2f}  O {day_open:,.2f}\n"
                         f"RSI: {rsi_now:.0f}   ADX: {adx_now:.0f}\n"
                         f"Rules: Market closed (daily data)\n"
-                        f"{dt.datetime.now().strftime('%Y-%m-%d %H:%M:%S')}"
+                        f"{now_ist_str}"
                     )
 
             # Message preview + cooldown
@@ -1544,7 +1590,7 @@ with tab6:
 
             # ---- AUTO SEND on refresh if rules triggered ----
             if 'reasons' in locals() and reasons:
-                now = dt.datetime.now()
+                now = dt.datetime.now(pytz.timezone("Asia/Kolkata"))
                 last_text = st.session_state.get("last_alert_text")
                 last_time = st.session_state.get("last_alert_time")
                 within_cooldown = bool(last_time) and ((now - last_time).total_seconds() < cooldown_min * 60)
@@ -1559,7 +1605,7 @@ with tab6:
                             st.warning(f"Auto-send failed: {e}")
 
             if st.button("📤 Send Test Alert", key="send_tele_demo"):
-                now = dt.datetime.now()
+                now = dt.datetime.now(pytz.timezone("Asia/Kolkata"))
                 last_text = st.session_state.get("last_alert_text")
                 last_time = st.session_state.get("last_alert_time")
                 is_duplicate = (last_text == msg)
@@ -1581,7 +1627,7 @@ with tab6:
 
             st.write(f"Last close ₹{last_close:,.2f}  | RSI {rsi_now:.0f}  | ADX {adx_now:.0f}")
             if st.session_state.get("last_alert_time"):
-                ts = st.session_state["last_alert_time"].strftime("%Y-%m-%d %H:%M:%S")
+                ts = st.session_state["last_alert_time"].astimezone(pytz.timezone("Asia/Kolkata")).strftime("%Y-%m-%d %H:%M:%S IST")
                 st.caption(f"Last alert at **{ts}**")
         except Exception as e:
             st.warning(f"Alert demo error: {e}")
