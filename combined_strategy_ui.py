@@ -421,25 +421,26 @@ with tab1:
             
             # Optional sentiment series for SARIMAX
             sentiment_input = None
+            sent_source = "None"
             if forecast_model == "SARIMAX" and enable_sentiment:
                 from utils_live_sentiment import get_live_daily_sentiment, align_sentiment_to_index
                 with st.spinner("📰 Pulling live news sentiment…"):
-                    # Fetch more items to reduce 'flat' risk
-                    sent_daily = get_live_daily_sentiment(selected_symbol, max_items=80, lookback_days=21)
+                    sent_daily, sent_source = get_live_daily_sentiment(selected_symbol, max_items=120, lookback_days=28)
                 sentiment_input = align_sentiment_to_index(sent_daily, df.index)
                 try:
-                    if not sent_daily.empty:
+                    if not sent_daily.empty and sentiment_input.std() > 1e-6:
                         st.caption(
-                            f"🕒 News sentiment updated through {sent_daily.index.max().date()} "
-                            f"(n={len(sent_daily)}, mean={sentiment_input.mean():.3f}, std={sentiment_input.std():.3f})"
+                            f"🕒 Sentiment source: **{sent_source}** · through {sent_daily.index.max().date()} "
+                            f"(n={len(sent_daily)}, std={sentiment_input.std():.3f})"
                         )
                         with st.expander("Preview latest sentiment (daily)"):
                             st.dataframe(sent_daily.tail(10).rename("compound").to_frame())
                     else:
-                        st.warning("⚠️ No recent headlines found; using SARIMAX without sentiment.")
+                        st.warning("⚠️ No useful sentiment variation found; SARIMAX will run without exogenous.")
                         sentiment_input = None
                 except Exception:
                     pass
+
 
 
 
