@@ -58,7 +58,7 @@ from rl_dqn_agent import train_dqn_agent, simulate_trading, evaluate_dqn_perform
 from news_sentiment_utils import fetch_google_news_sentiment
 
 # === 📄 PDF Reporting ===
-from report_generator import generate_html_report
+from report_generator import generate_html_report, html_to_pdf_bytes
 
 # === 🕒 Timezone Support ===
 import pytz
@@ -853,6 +853,7 @@ with tab3:
             logging.error(f"DQN Strategy error: {e}")
 
 
+
 # --- Tab 4: Strategy Comparison ---
 with tab4:
     st.subheader("⚖️ ML vs. DQN Strategy Comparison")
@@ -976,51 +977,100 @@ with tab4:
         dqn_roi = ((dqn_final_worth - 10000) / 10000) * 100
         st.metric("DQN ROI", f"{dqn_roi:.2f}%")
 
-    # Generate report
+    # --- Generate Strategy Report (HTML everywhere, optional PDF) ---
     if st.button("Generate Strategy Report", key="generate_report"):
         try:
+            import os, base64
+            from report_generator import generate_html_report, html_to_pdf_bytes
+
+            # Pull items you already keep in session/state
             model_name = st.session_state.get("ml_model", "Logistic Regression")
-            acc = st.session_state.get("ml_accuracy", 0.0)  # use real accuracy if stored
+            acc = st.session_state.get("ml_accuracy", 0.0)  # if you store true accuracy
             shap_path = st.session_state.get("shap_plot_path", "")
             lime_path = st.session_state.get("lime_plot_path", "")
-            chart_path = chart_filename if os.path.exists(chart_filename) else ""
+            chart_path = chart_filename if "chart_filename" in locals() and os.path.exists(chart_filename) else ""
 
+            # Tables for the report
             benchmark_df = pd.DataFrame({
                 "Strategy": ["ML", "DQN"],
                 "Final Value": [ml_final_cash, dqn_final_worth],
-                "ROI (%)": [ml_roi, dqn_roi]
+                "ROI (%)": [ml_roi, dqn_roi],
             })
 
             report_df = pd.DataFrame({
                 "Date": ml_df["Date"].dt.strftime("%Y-%m-%d"),
                 "ML Equity": ml_equity,
-                "DQN Worth": [x if i < len(dqn_worth) else None for i, x in enumerate(dqn_worth)]
+                "DQN Worth": [x if i < len(dqn_worth) else None for i, x in enumerate(dqn_worth)],
             }).dropna()
 
-            stock_name = selected_symbol
+            # Optional: embed images (SHAP/LIME/equity chart) inline using base64 if files exist
+            def _img_tag_if_exists(path, title):
+                try:
+                    if path and os.path.exists(path):
+                        with open(path, "rb") as fh:
+                            b64 = base64.b64encode(fh.read()).decode("ascii")
+                        return f'<h3>{title}</h3><img src="data:image/png;base64,{b64}" style="max-width:100%;border:1px solid #eee;border-radius:6px;margin:6px 0;" />'
+                except Exception:
+                    pass
+                return ""
 
-            report_file = generate_html_report(
-                stock_name=stock_name,
-                model_name=model_name,
-                acc=acc,
-                shap_path=shap_path,
-                lime_path=lime_path,
-                chart_path=chart_path,
-                benchmark_df=benchmark_df,
-                report_df=report_df
+            visuals_html = ""
+            visuals_html += _img_tag_if_exists(chart_path, "Equity Curve")
+            visuals_html += _img_tag_if_exists(shap_path, "SHAP Summary")
+            visuals_html += _img_tag_if_exists(lime_path, "LIME Explanation")
+
+            # Build the context for the report generator
+            ctx = {
+                "title": "Strategy Comparison Report",
+                "symbol": selected_symbol,
+                "period": f"{start_date} → {end_date}",
+                "kpis": {
+                    "Model": model_name,
+                    "Accuracy": f"{acc:.2%}" if isinstance(acc, (int, float)) else acc,
+                    "ML Final": f"₹{ml_final_cash:,.2f}",
+                    "DQN Final": f"₹{dqn_final_worth:,.2f}",
+                    "ML ROI": f"{ml_roi:.2f}%",
+                    "DQN ROI": f"{dqn_roi:.2f}%",
+                },
+                "tables": {
+                    "Benchmark Summary": benchmark_df,
+                    "Equity vs Worth (sample)": report_df.head(100),  # keep light; full CSV is downloadable elsewhere
+                    **( {"Visuals": visuals_html} if visuals_html else {} ),
+                },
+                "notes": (
+                    "This report compares ML and DQN strategies over the selected period. "
+                    "Visuals are included when available (equity curve / SHAP / LIME)."
+                ),
+            }
+
+            # 1) Always create HTML (works on Streamlit Cloud)
+            html_str = generate_html_report(ctx)
+            st.download_button(
+                label="📄 Download Strategy Report (HTML)",
+                data=html_str,
+                file_name=f"{selected_symbol}_Strategy_Comparison.html",
+                mime="text/html",
+                key="dl_report_html",
             )
 
-            with open(report_file, "rb") as f:
+            # 2) Try PDF (works locally if WeasyPrint is installed; returns None on Cloud)
+            pdf_bytes = html_to_pdf_bytes(html_str)
+            if pdf_bytes:
                 st.download_button(
-                    label="📄 Download Strategy Report (PDF)",
-                    data=f,
+                    label="🧾 Download Strategy Report (PDF)",
+                    data=pdf_bytes,
                     file_name=f"{selected_symbol}_Strategy_Comparison.pdf",
-                    mime="application/pdf"
+                    mime="application/pdf",
+                    key="dl_report_pdf",
                 )
+            else:
+                st.info("PDF generation isn’t available in this environment. Use the HTML report (or run locally with WeasyPrint installed).")
+
         except Exception as e:
             st.error(f"❌ Failed to generate report: {e}")
             logging.error(f"Report generation error: {e}")
 
+   
 
    
 # --- Tab 5: News Sentiment ---
@@ -1471,4 +1521,5 @@ with tab6:
                 st.caption(f"Last alert at **{ts}**")
         except Exception as e:
             st.warning(f"Alert demo error: {e}")
+
 
