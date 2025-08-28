@@ -419,19 +419,21 @@ with tab1:
                 st.stop()
 
             # Optional sentiment series for SARIMAX
-            sentiment_input = pd.Series([0.0] * len(df.index), index=df.index)
+            sentiment_input = None
             if forecast_model == "SARIMAX" and enable_sentiment:
+                from utils_live_sentiment import get_live_daily_sentiment, align_sentiment_to_index
                 with st.spinner("📰 Pulling live news sentiment…"):
                     sent_daily = get_live_daily_sentiment(selected_symbol)
                 sentiment_input = align_sentiment_to_index(sent_daily, df.index)
-                # Small status line so users know recency of the feed
                 try:
                     if not sent_daily.empty:
                         st.caption(f"🕒 News sentiment updated through {sent_daily.index.max().date()} (auto-refresh ~3 min)")
                     else:
-                        st.warning("⚠️ No recent headlines found; using neutral sentiment (0.0).")
+                        st.warning("⚠️ No recent headlines found; using SARIMAX without sentiment.")
+                        sentiment_input = None
                 except Exception:
                     pass
+
 
 
             # Run model
