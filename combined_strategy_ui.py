@@ -223,6 +223,10 @@ with st.sidebar:
 
     # Final resolved symbol (used by the rest of the app)
     selected_symbol = st.session_state.get("selected_symbol")
+	# Pre-mark chip as rendered so the earlier validation block does not duplicate the "Selected" message
+    if selected_symbol:
+        st.session_state["_chip_rendered"] = True
+
 
     # If nothing resolved yet, show a gentle nudge (the validation/success block below stays as-is)
     if not selected_symbol:
@@ -260,20 +264,22 @@ with st.sidebar:
 
 
     # Use remaining sidebar space: quick date shortcuts + a minor toggle
+    # -- Callback helpers (avoid writing widget state inline) --
+    def _set_start_months(m: int):
+        st.session_state["start_date"] = (pd.Timestamp.today() - pd.DateOffset(months=m)).date()
+        st.session_state["end_date"] = dt.date.today()
+        st.rerun()
+
+    def _set_start_years(y: int):
+        st.session_state["start_date"] = (pd.Timestamp.today() - pd.DateOffset(years=y)).date()
+        st.session_state["end_date"] = dt.date.today()
+        st.rerun()
+
     with st.expander("⚡ Shortcuts", expanded=False):
         sc1, sc2, sc3 = st.columns(3)
-        if sc1.button("1M"):
-            new_start = (pd.Timestamp.today() - pd.DateOffset(months=1)).date()
-            st.session_state["start_date"] = new_start
-            st.session_state["end_date"] = dt.date.today()
-        if sc2.button("3M"):
-            new_start = (pd.Timestamp.today() - pd.DateOffset(months=3)).date()
-            st.session_state["start_date"] = new_start
-            st.session_state["end_date"] = dt.date.today()
-        if sc3.button("1Y"):
-            new_start = (pd.Timestamp.today() - pd.DateOffset(years=1)).date()
-            st.session_state["start_date"] = new_start
-            st.session_state["end_date"] = dt.date.today()
+        sc1.button("1M", on_click=_set_start_months, args=(1,))
+        sc2.button("3M", on_click=_set_start_months, args=(3,))
+        sc3.button("1Y", on_click=_set_start_years,  args=(1,))
         st.toggle("Dark Grid", key="dark_grid", value=st.session_state.get("dark_grid", True))
 
 
