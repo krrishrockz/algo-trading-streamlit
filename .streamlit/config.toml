@@ -1,3 +1,22 @@
+# algo-trading-streamlit/.streamlit/config.toml
+
 [theme]
-base="dark"
-primaryColor="#B81194"
+# Modern trading-style dark UI
+base = "dark"
+primaryColor = "#00C853"              # trading green for highlights & widgets
+backgroundColor = "#0B0F16"           # app background (near-black, low glare)
+secondaryBackgroundColor = "#111827"  # cards/containers (slate)
+textColor = "#E5E7EB"                 # soft light gray text
+font = "sans serif"
+
+[client]
+# Minimal chrome like a trading terminal
+toolbarMode = "viewer"   # hides editing toolbar
+
+[server]
+headless = true
+enableXsrfProtection = true
+enableCORS = false       # set true if you front this with your own proxy
+
+[browser]
+gatherUsageStats = false
