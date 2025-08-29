@@ -202,9 +202,11 @@ with st.sidebar:
 		key="base_symbol",
 	).upper().strip()
 
+
 	def _norm(sym: str, suffix: str) -> str:
 		sym = (sym or "").upper().strip()
 		return sym if "." in sym else (sym + suffix)
+
 
 	c1, c2, c3 = st.columns(3)
 	if c1.button("Use NSE (.NS)", use_container_width=True, key="btn_use_ns"):
@@ -215,7 +217,8 @@ with st.sidebar:
 		st.session_state["selected_symbol"] = base_symbol
 
 	# Popular quick picks to avoid typing
-	_qp = ["RELIANCE.NS","HDFCBANK.NS","INFY.NS","TCS.NS","ICICIBANK.NS","TATASTEEL.NS","SBIN.NS","HINDUNILVR.NS"]
+	_qp = ["RELIANCE.NS", "HDFCBANK.NS", "INFY.NS", "TCS.NS", "ICICIBANK.NS",
+		   "TATASTEEL.NS", "SBIN.NS", "HINDUNILVR.NS"]
 	qp_choice = st.selectbox("Or pick quickly", options=["—"] + _qp, index=0, key="quick_pick")
 	if qp_choice != "—":
 		st.session_state["selected_symbol"] = qp_choice
@@ -226,6 +229,7 @@ with st.sidebar:
 	# If nothing resolved yet, show a gentle nudge (the validation/success block below stays as-is)
 	if not selected_symbol:
 		st.warning("⚠️ Please enter a stock symbol or use the buttons/quick picks.")
+
 
 
     st.markdown("### 📅 Date Range")
@@ -1893,3 +1897,6 @@ with tab6:
                 st.caption(f"Last alert at **{ts}**")
         except Exception as e:
             st.warning(f"Alert demo error: {e}")
+
+
+
