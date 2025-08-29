@@ -246,23 +246,25 @@ with st.sidebar:
     st.markdown("### 🔁 Auto Refresh")
     refresh_rate = st.slider("Auto Refresh (sec)", 0, 3000, 300, step=10)
     # Pause auto-refresh when long tasks are running
+    # Pause auto-refresh when long tasks are running
     if refresh_rate > 0 and not st.session_state.get("busy", False):
         st_autorefresh(interval=refresh_rate * 1000, key="refresh_timer")
-	
-	# Compact "Selected" chip (shows current ticker)
-	if selected_symbol:
-		st.markdown(f"<div class='sidebar-chip'>✅ Selected: {selected_symbol}</div>", unsafe_allow_html=True)
 
-	# Use remaining sidebar space: quick date shortcuts + a minor toggle
-	with st.expander("⚡ Shortcuts", expanded=False):
-		sc1, sc2, sc3 = st.columns(3)
-		if sc1.button("1M"):
-			st.session_state["start_date"] = pd.Timestamp.today().date() - pd.DateOffset(months=1)
-		if sc2.button("3M"):
-			st.session_state["start_date"] = pd.Timestamp.today().date() - pd.DateOffset(months=3)
-		if sc3.button("1Y"):
-			st.session_state["start_date"] = pd.Timestamp.today().date() - pd.DateOffset(years=1)
-		st.toggle("Dark Grid", key="dark_grid", value=st.session_state.get("dark_grid", True))
+    # Compact "Selected" chip (shows current ticker)
+    if selected_symbol:
+        st.markdown(f"<div class='sidebar-chip'>✅ Selected: {selected_symbol}</div>", unsafe_allow_html=True)
+
+    # Use remaining sidebar space: quick date shortcuts + a minor toggle
+    with st.expander("⚡ Shortcuts", expanded=False):
+        sc1, sc2, sc3 = st.columns(3)
+        if sc1.button("1M"):
+            st.session_state["start_date"] = pd.Timestamp.today().date() - pd.DateOffset(months=1)
+        if sc2.button("3M"):
+            st.session_state["start_date"] = pd.Timestamp.today().date() - pd.DateOffset(months=3)
+        if sc3.button("1Y"):
+            st.session_state["start_date"] = pd.Timestamp.today().date() - pd.DateOffset(years=1)
+        st.toggle("Dark Grid", key="dark_grid", value=st.session_state.get("dark_grid", True))
+
 
 
     st.divider()
