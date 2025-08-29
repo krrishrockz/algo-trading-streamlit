@@ -1094,6 +1094,54 @@ with tab2:
 
                 except Exception as e:
                     st.error(f"❌ Explainability Error: {e}")
+                    
+                        # ================= Benchmark Models =================
+            st.markdown("### 🏁 Benchmark Models")
+            if st.button("📊 Run Benchmark Models", key="benchmark_btn"):
+                try:
+                    st.info("⏳ Running benchmark across Logistic Regression, Random Forest, and XGBoost...")
+
+                    if "ml_df" not in st.session_state or st.session_state.ml_df is None:
+                        st.error("❌ Please run ML Strategy first before benchmarking.")
+                    else:
+                        bm_df = benchmark_models(st.session_state.ml_df.copy())
+
+                        if not bm_df.empty:
+                            # Show results
+                            st.dataframe(bm_df, use_container_width=True)
+
+                            # Highlight best model
+                            best_by_f1 = bm_df.sort_values("F1-Score", ascending=False).iloc[0]
+                            c1, c2, c3 = st.columns(3)
+                            c1.metric("🏆 Best Model", best_by_f1["Model"])
+                            c2.metric("Accuracy", f"{best_by_f1['Accuracy']:.2f}")
+                            c3.metric("F1-Score", f"{best_by_f1['F1-Score']:.2f}")
+
+                            c4, c5 = st.columns(2)
+                            c4.metric("AUC (macro)", f"{best_by_f1['AUC (macro)']:.2f}")
+                            c5.metric("Specificity (macro)", f"{best_by_f1['Specificity (macro)']:.2f}")
+
+                            st.success(
+                                f"✅ Based on F1-Score, the best performing model is **{best_by_f1['Model']}** "
+                                f"(Acc={best_by_f1['Accuracy']:.2f}, "
+                                f"AUC={best_by_f1['AUC (macro)']:.2f})"
+                            )
+
+                            # 📥 Download button for CSV
+                            bm_csv = bm_df.to_csv(index=False).encode("utf-8")
+                            st.download_button(
+                                label="📥 Download Benchmark CSV",
+                                data=bm_csv,
+                                file_name=f"{selected_symbol}_benchmark_results.csv",
+                                mime="text/csv",
+                                key="dl_benchmark_csv"
+                            )
+                        else:
+                            st.warning("⚠️ Benchmark returned no results. Check your input data.")
+                except Exception as e:
+                    st.error(f"❌ Benchmark failed: {e}")
+                    logging.error(f"Benchmark models failed: {e}")
+    
         except Exception as e:
                     st.error(f"❌ ML strategy Error: {e}")
         finally:
