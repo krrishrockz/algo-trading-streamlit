@@ -343,11 +343,13 @@ tab1, tab2, tab3, tab4, tab5, tab6 = st.tabs([
     "📰 News Sentiment",      # tab5
     "📡 Live Feed"            # tab6
 ])
-
 # --- Tab 1: Forecasting ---
 with tab1:
     st.markdown("## 📈 Forecasting Module")
     st.markdown("Use time series models to predict future stock prices.")
+
+    # (NEW) Toggle to suppress SARIMAX diagnostics without deleting code
+    SHOW_SARIMAX_DIAGNOSTICS = False
 
     # --- Show prior downloads ONLY if we have them (side-by-side) ---
     if ("last_forecast_model" in st.session_state) and ("_downloads" in st.session_state):
@@ -418,7 +420,6 @@ with tab1:
                 )
                 st.stop()
 
-            
             # Optional sentiment series for SARIMAX
             sentiment_input = None
             if forecast_model == "SARIMAX" and enable_sentiment:
@@ -441,16 +442,14 @@ with tab1:
                         f"mean={s_mean:+.3f} | std={float(sent_daily.std()):.3f}"
                     )
 
-                    # NEW: compact preview dropdown of last 14 daily sentiment points
+                    # (CHANGED) Show last 14 days as a TABLE instead of dropdown
                     try:
                         lastN = sent_daily.sort_index().tail(14)
-                        preview = [f"{d.date()}  |  {v:+.3f}" for d, v in lastN.items()]
-                        st.selectbox(
-                            "Daily sentiment (last 14 days)",
-                            options=preview if preview else ["(no data)"],
-                            index=(len(preview) - 1) if preview else 0,
-                            key="sarimax_sentiment_preview",
-                        )
+                        df_sent_prev = pd.DataFrame({
+                            "Date": [d.strftime("%Y-%m-%d") for d in lastN.index],
+                            "Sentiment": [float(v) for v in lastN.values],
+                        })
+                        st.dataframe(df_sent_prev, use_container_width=True)
                         # Store for reuse elsewhere if needed
                         st.session_state["sarimax_sent_series"] = lastN
                         st.session_state["sarimax_sent_source"] = sent_source
@@ -459,7 +458,7 @@ with tab1:
 
                     # If still flat after alignment (e.g., only 1 news date), blend with price returns
                     if float(np.nanstd(np.asarray(sentiment_input, dtype=float))) == 0.0:
-                        st.info("ℹ️ Sentiment series flat after alignment; blending with normalized price returns (50/50).")
+                        # Keeping your existing behavior, but suppressing noisy UI messages
                         rets = pd.Series(df['Close']).pct_change().fillna(0.0)
                         r_mean = float(rets.mean()) if np.isfinite(rets.mean()) else 0.0
                         r_std  = float(rets.std())  if np.isfinite(rets.std()) and rets.std() != 0 else 1.0
@@ -467,13 +466,8 @@ with tab1:
                         rets_aligned = align_sentiment_to_index(rets_z, df.index)
                         sentiment_input = 0.5 * sentiment_input + 0.5 * rets_aligned
                 else:
-                    st.warning("⚠️ No recent headlines found; continuing without exogenous sentiment.")
+                    # Keep logic but avoid extra warnings in UI
                     sentiment_input = None
-
-
-
-
-
 
             # Run model
             forecast_result = model_fit = lower = upper = None
@@ -527,7 +521,9 @@ with tab1:
                                 break
                 except Exception:
                     pass
-                st.info(f"SARIMAX exogenous sentiment used: {'Yes ✅' if used_exog else 'No (flat/missing) ⚠️'} | β_sent: {beta_msg}")
+                # (SUPPRESSED) keep code but don't show the message
+                if SHOW_SARIMAX_DIAGNOSTICS:
+                    st.info(f"SARIMAX exogenous sentiment used: {'Yes ✅' if used_exog else 'No (flat/missing) ⚠️'} | β_sent: {beta_msg}")
 
 
             # Ensure forecast index is forward-looking business days (no weekends/holidays)
@@ -641,7 +637,9 @@ with tab1:
                 used = "Yes ✅" if metrics.get("exog_used") else "No (flat/missing) ⚠️"
                 beta = metrics.get("beta_sent")
                 beta_txt = "—" if (beta is None or (isinstance(beta, float) and np.isnan(beta))) else f"{beta:.3f}"
-                st.caption(f"SARIMAX exogenous sentiment used: **{used}** | β_sent: **{beta_txt}**")
+                # (SUPPRESSED) keep code but don't show the message
+                if SHOW_SARIMAX_DIAGNOSTICS:
+                    st.caption(f"SARIMAX exogenous sentiment used: **{used}** | β_sent: **{beta_txt}**")
 
             # ---------- Downloads (Current + stash for reruns) ----------
             export_df = pd.DataFrame(
