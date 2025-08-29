@@ -699,7 +699,6 @@ with tab1:
         except Exception as e:
             st.error(f"🚨 Forecasting Error: {e}")
             logging.error(f"Forecasting error: {e}")
-
 # --- Tab 2: ML Strategy ---
 with tab2:
     st.markdown("## 📊 Machine Learning Strategy")
@@ -939,57 +938,33 @@ with tab2:
                             default_name=f"{selected_symbol}_{ml_model}_LIME.json",
                             mime_type="application/json"
                         )
+
+                    # --- NEW: always show the SHAP “force” as a robust Plotly bar and stash PNG ---
                     if results.get("shap_force"):
                         st.markdown("#### SHAP Force Plot")
+                        plotly_chart_unique(results["shap_force"], "ml_shap_force")
                         try:
-                            import shap
-                            # results["shap_force"] may be a SHAP object or already HTML
-                            obj = results["shap_force"]
-                            if hasattr(obj, "to_html"):
-                                shap_html_body = obj.to_html()
-                            elif isinstance(obj, str):
-                                shap_html_body = obj
-                            else:
-                                # Last-resort: try legacy .html() if present
-                                shap_html_body = getattr(obj, "html", lambda: "")() or ""
+                            import plotly.io as pio
+                            st.session_state["explain_shap_force_png"] = pio.to_image(results["shap_force"], format="png", scale=2, width=1000, height=600)
+                        except Exception:
+                            st.session_state["explain_shap_force_png"] = None
 
-                            # Ensure SHAP JS is included so the force plot renders in Streamlit
-                            shap_html_full = f"<html><head>{shap.getjs()}</head><body style='margin:0'>{shap_html_body}</body></html>"
-
+                    # Keep your prior HTML-based force plot code, but gate it so it doesn't auto-run
+                    # (prevents Streamlit collapse on some hosts). Toggle via session if you want it.
+                    if results.get("shap_force_html") and st.session_state.get("enable_shap_html", False):
+                        st.markdown("#### SHAP Force Plot (Interactive HTML)")
+                        try:
+                            import shap, streamlit.components.v1 as components
+                            shap_html_full = f"<html><head>{shap.getjs()}</head><body style='margin:0'>{results['shap_force_html']}</body></html>"
                             components.html(shap_html_full, height=600, scrolling=True)
-
                             safe_download(
                                 label="📥 Download SHAP Force (HTML)",
                                 data_bytes=shap_html_full.encode("utf-8"),
                                 default_name=f"{selected_symbol}_{ml_model}_SHAP_Force.html",
                                 mime_type="text/html"
                             )
-                        except Exception as e:
-                            # Static fallback → try to export a PNG
-                            import io, matplotlib.pyplot as plt
-                            try:
-                                fig = results.get("shap_force_matplot")
-                                if fig is None:
-                                    # If your generator stashed an Explanation, try to draw one
-                                    exp = results.get("shap_explanation")
-                                    if exp is not None:
-                                        import shap as _shap
-                                        _shap.plots.force(exp, matplotlib=True, show=False)
-                                        fig = plt.gcf()
-                                if fig is not None:
-                                    buf = io.BytesIO()
-                                    fig.savefig(buf, format="png", dpi=150, bbox_inches="tight")
-                                    st.image(buf.getvalue(), caption="SHAP Force (static)")
-                                    safe_download(
-                                        label="📥 Download SHAP Force (PNG)",
-                                        data_bytes=buf.getvalue(),
-                                        default_name=f"{selected_symbol}_{ml_model}_SHAP_Force.png",
-                                        mime_type="image/png"
-                                    )
-                                else:
-                                    st.info("SHAP force plot unavailable for this model/selection.")
-                            except Exception:
-                                st.info("SHAP force plot unavailable for this model/selection.")
+                        except Exception:
+                            pass
 
                 except Exception as e:
                     st.error(f"❌ Explainability Error: {e}")
@@ -1296,6 +1271,7 @@ with tab4:
         try:
             import os, base64
             from report_generator import generate_html_report, html_to_pdf_bytes
+            import plotly.io as pio
 
             # Pull items you already keep in session/state
             model_name = st.session_state.get("ml_model", "Logistic Regression")
@@ -1341,14 +1317,17 @@ with tab4:
             shap_bar_png = st.session_state.get("explain_shap_bar_png")
             shap_bee_png = st.session_state.get("explain_shap_beeswarm_png")
             lime_png     = st.session_state.get("explain_lime_png")
+            shap_force_png = st.session_state.get("explain_shap_force_png")  # <-- NEW
+
             if shap_bar_png:
                 visuals_html += _img_tag_from_bytes(shap_bar_png, "SHAP Feature Importance (Bar)")
             if shap_bee_png:
                 visuals_html += _img_tag_from_bytes(shap_bee_png, "SHAP Beeswarm")
             if lime_png:
                 visuals_html += _img_tag_from_bytes(lime_png, "LIME Explanation")
+            if shap_force_png:
+                visuals_html += _img_tag_from_bytes(shap_force_png, "SHAP Force (bar)")  # <-- NEW
             visuals_html += _img_tag_from_bytes(cmp_png, "ML vs DQN Equity (Comparison)")
-
 
             # Build the context for the report generator
             ctx = {
