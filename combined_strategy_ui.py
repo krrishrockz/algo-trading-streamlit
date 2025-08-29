@@ -282,6 +282,10 @@ with st.sidebar:
                 st.success(f"✅ Selected: {selected_symbol}")
         except Exception:
             st.error("❌ Could not validate symbol.")
+			
+# Compact "Selected" chip (single place, no duplicate)
+    if selected_symbol:
+        st.markdown(f"<div class='sidebar-chip'>✅ Selected: {selected_symbol}</div>", unsafe_allow_html=True)
 
     # --- Compact Date + Refresh (side-by-side) ---
     # --- Date Range (vertical) ---
@@ -296,9 +300,7 @@ with st.sidebar:
         st_autorefresh(interval=refresh_rate * 1000, key="refresh_timer")
 
 
-    # Compact "Selected" chip (single place, no duplicate)
-    if selected_symbol:
-        st.markdown(f"<div class='sidebar-chip'>✅ Selected: {selected_symbol}</div>", unsafe_allow_html=True)
+    
 
 
     st.divider()
