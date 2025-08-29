@@ -80,7 +80,7 @@ def plot_trade_signals(df, ticker, model_name, chart_type="plotly"):
         buy_signals = df[df["Prediction"] == 1]
         sell_signals = df[df["Prediction"] == -1]
         plt.scatter(buy_signals["Date"], buy_signals["Close"], label="Buy Signal", marker="^", color="green", s=100)
-        plt.scatter(sell_signals["Date"], buy_signals["Close"], label="Sell Signal", marker="v", color="red", s=100)
+        plt.scatter(sell_signals["Date"], sell_signals["Close"], label="Sell Signal", marker="v", color="red", s=100)  # <-- fixed
         plt.title(f"{ticker} – {model_name} Trade Signals")
         plt.xlabel("Date")
         plt.ylabel("Price (INR)")
@@ -368,17 +368,18 @@ def run_ml_strategy(ticker, start, end, model="Logistic Regression", initial_cas
             "Random Forest": RandomForestClassifier(n_estimators=100, random_state=42),
             "XGBoost": XGBClassifier(objective='multi:softprob',
                 random_state=42,
-                n_estimators=300,
-                max_depth=4,
-                learning_rate=0.1,
+                n_estimators=200,        # lighter
+                max_depth=3,            # lighter
+                learning_rate=0.12,     # a tad faster learning
                 subsample=0.9,
                 colsample_bytree=0.9,
-                tree_method="hist",
+                tree_method="hist",     # fast & memory friendly
                 reg_lambda=1.0,
                 eval_metric="mlogloss",
+                n_jobs=1,               # avoid CPU thrash on Cloud
                 verbosity=0)
-        }
-        
+        }  # <-- completed dict/parentheses
+
         clf = model_map.get(model)
         if clf is None:
             logging.error(f"Unknown model: {model}")
