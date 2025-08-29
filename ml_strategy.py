@@ -10,7 +10,7 @@ import numpy as np
 from sklearn.preprocessing import LabelEncoder
 import logging
 import gymnasium as gym
-
+import os
     
 import feedparser
 from datetime import datetime
@@ -18,8 +18,18 @@ from datetime import datetime
 import plotly.graph_objects as go
 import matplotlib.pyplot as plt
 
-# Set up logging
-logging.basicConfig(level=logging.INFO, filename="ml_strategy.log")
+# Ensure logs directory exists (works locally and on Streamlit Cloud)
+LOG_DIR = os.path.join(os.path.dirname(__file__), "logs")
+os.makedirs(LOG_DIR, exist_ok=True)
+LOG_FILE = os.path.join(LOG_DIR, "ml_strategy.log")
+
+logging.basicConfig(
+    filename=LOG_FILE,
+    filemode="a",
+    level=logging.INFO,
+    format="%(asctime)s - %(levelname)s - %(message)s",
+)
+logger = logging.getLogger(__name__)
 
 
 # --- XGBoost compatibility shim (works across old/new versions) ---
@@ -663,3 +673,4 @@ def compute_risk_metrics(equity: pd.Series, periods_per_year: int = 252, rf: flo
     max_dd = float(drawdown.min()) if not drawdown.empty else 0.0
 
     return {"sharpe": float(sharpe), "sortino": float(sortino), "max_dd": max_dd}
+
