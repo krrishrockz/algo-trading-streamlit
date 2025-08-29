@@ -194,41 +194,39 @@ st.title("📊 AI-Based Algorithmic Trading Platform")
 with st.sidebar:
     st.markdown("### 📊 Stock Selection")
 
-	# Base symbol (no suffix) → we’ll resolve via buttons
-	base_symbol = st.text_input(
-		"Enter Stock Symbol (no suffix)",
-		value=st.session_state.get("base_symbol", ""),
-		placeholder="TATASTEEL or RELIANCE",
-		key="base_symbol",
-	).upper().strip()
+    # Base symbol (no suffix) → we’ll resolve via buttons
+    base_symbol = st.text_input(
+        "Enter Stock Symbol (no suffix)",
+        value=st.session_state.get("base_symbol", ""),
+        placeholder="TATASTEEL or RELIANCE",
+        key="base_symbol",
+    ).upper().strip()
 
+    def _norm(sym: str, suffix: str) -> str:
+        sym = (sym or "").upper().strip()
+        return sym if "." in sym else (sym + suffix)
 
-	def _norm(sym: str, suffix: str) -> str:
-		sym = (sym or "").upper().strip()
-		return sym if "." in sym else (sym + suffix)
+    c1, c2, c3 = st.columns(3)
+    if c1.button("Use NSE (.NS)", use_container_width=True, key="btn_use_ns"):
+        st.session_state["selected_symbol"] = _norm(base_symbol, ".NS")
+    if c2.button("Use BSE (.BO)", use_container_width=True, key="btn_use_bo"):
+        st.session_state["selected_symbol"] = _norm(base_symbol, ".BO")
+    if c3.button("Raw", use_container_width=True, key="btn_use_raw"):
+        st.session_state["selected_symbol"] = base_symbol
 
+    # Popular quick picks to avoid typing
+    _qp = ["RELIANCE.NS", "HDFCBANK.NS", "INFY.NS", "TCS.NS", "ICICIBANK.NS",
+           "TATASTEEL.NS", "SBIN.NS", "HINDUNILVR.NS"]
+    qp_choice = st.selectbox("Or pick quickly", options=["—"] + _qp, index=0, key="quick_pick")
+    if qp_choice != "—":
+        st.session_state["selected_symbol"] = qp_choice
 
-	c1, c2, c3 = st.columns(3)
-	if c1.button("Use NSE (.NS)", use_container_width=True, key="btn_use_ns"):
-		st.session_state["selected_symbol"] = _norm(base_symbol, ".NS")
-	if c2.button("Use BSE (.BO)", use_container_width=True, key="btn_use_bo"):
-		st.session_state["selected_symbol"] = _norm(base_symbol, ".BO")
-	if c3.button("Raw", use_container_width=True, key="btn_use_raw"):
-		st.session_state["selected_symbol"] = base_symbol
+    # Final resolved symbol (used by the rest of the app)
+    selected_symbol = st.session_state.get("selected_symbol")
 
-	# Popular quick picks to avoid typing
-	_qp = ["RELIANCE.NS", "HDFCBANK.NS", "INFY.NS", "TCS.NS", "ICICIBANK.NS",
-		   "TATASTEEL.NS", "SBIN.NS", "HINDUNILVR.NS"]
-	qp_choice = st.selectbox("Or pick quickly", options=["—"] + _qp, index=0, key="quick_pick")
-	if qp_choice != "—":
-		st.session_state["selected_symbol"] = qp_choice
-
-	# Final resolved symbol (used by the rest of the app)
-	selected_symbol = st.session_state.get("selected_symbol")
-
-	# If nothing resolved yet, show a gentle nudge (the validation/success block below stays as-is)
-	if not selected_symbol:
-		st.warning("⚠️ Please enter a stock symbol or use the buttons/quick picks.")
+    # If nothing resolved yet, show a gentle nudge (the validation/success block below stays as-is)
+    if not selected_symbol:
+        st.warning("⚠️ Please enter a stock symbol or use the buttons/quick picks.")
 
 
 
