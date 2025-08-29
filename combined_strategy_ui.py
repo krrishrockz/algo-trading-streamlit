@@ -887,6 +887,12 @@ with tab2:
                     st.session_state.explainability_results = results
                     if results.get("shap_bar"):
                         plotly_chart_unique(results["shap_bar"], "ml_shap_bar")
+                        # stash PNG for report
+                        try:
+                            import plotly.io as pio
+                            st.session_state["explain_shap_bar_png"] = pio.to_image(results["shap_bar"], format="png", scale=2, width=1000, height=600)
+                        except Exception:
+                            st.session_state["explain_shap_bar_png"] = None
                         safe_download(
                             label="📥 Download SHAP Bar",
                             data_bytes=results["shap_bar"].to_json().encode("utf-8"),
@@ -895,6 +901,12 @@ with tab2:
                         )
                     if results.get("shap_beeswarm"):
                         plotly_chart_unique(results["shap_beeswarm"], "ml_shap_beeswarm")
+                        # stash PNG for report
+                        try:
+                            import plotly.io as pio
+                            st.session_state["explain_shap_beeswarm_png"] = pio.to_image(results["shap_beeswarm"], format="png", scale=2, width=1000, height=600)
+                        except Exception:
+                            st.session_state["explain_shap_beeswarm_png"] = None
                         safe_download(
                             label="📥 Download SHAP Beeswarm",
                             data_bytes=results["shap_beeswarm"].to_json().encode("utf-8"),
@@ -903,6 +915,12 @@ with tab2:
                         )
                     if results.get("lime_plot"):
                         plotly_chart_unique(results["lime_plot"], "ml_lime")
+                        # stash PNG for report
+                        try:
+                            import plotly.io as pio
+                            st.session_state["explain_lime_png"] = pio.to_image(results["lime_plot"], format="png", scale=2, width=1000, height=600)
+                        except Exception:
+                            st.session_state["explain_lime_png"] = None
                         safe_download(
                             label="📥 Download LIME",
                             data_bytes=results["lime_plot"].to_json().encode("utf-8"),
@@ -1262,9 +1280,18 @@ with tab4:
 
             visuals_html = ""
             visuals_html += _img_tag_if_exists(chart_path, "Equity Curve")
-            visuals_html += _img_tag_if_exists(shap_path, "SHAP Summary")
-            visuals_html += _img_tag_if_exists(lime_path, "LIME Explanation")
-            visuals_html += _img_tag_from_bytes(cmp_png, "ML vs DQN Equity (Comparison)")  # <-- ensure chart in HTML
+            # prefer in-memory PNGs captured in Tab 2 if present
+            shap_bar_png = st.session_state.get("explain_shap_bar_png")
+            shap_bee_png = st.session_state.get("explain_shap_beeswarm_png")
+            lime_png     = st.session_state.get("explain_lime_png")
+            if shap_bar_png:
+                visuals_html += _img_tag_from_bytes(shap_bar_png, "SHAP Feature Importance (Bar)")
+            if shap_bee_png:
+                visuals_html += _img_tag_from_bytes(shap_bee_png, "SHAP Beeswarm")
+            if lime_png:
+                visuals_html += _img_tag_from_bytes(lime_png, "LIME Explanation")
+            visuals_html += _img_tag_from_bytes(cmp_png, "ML vs DQN Equity (Comparison)")
+
 
             # Build the context for the report generator
             ctx = {
