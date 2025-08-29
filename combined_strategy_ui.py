@@ -1095,62 +1095,213 @@ with tab2:
                 except Exception as e:
                     st.error(f"❌ Explainability Error: {e}")
                     
-            # ================= Benchmark Models =================
-            # ================= Auto Benchmark (runs right after ML) =================
+                        # ================= FAST Auto Benchmark (streamed, no session reset) =================
+            import time
+            import plotly.express as px
+            from sklearn.model_selection import train_test_split
+            from sklearn.metrics import (
+                accuracy_score, precision_score, recall_score, f1_score,
+                roc_auc_score, confusion_matrix
+            )
+            from sklearn.preprocessing import label_binarize
+
+            st.markdown("### 🏁 Benchmark (Auto)")
+            bm_holder_table = st.empty()
+            bm_holder_chart1 = st.empty()
+            bm_holder_chart2 = st.empty()
+            bm_progress = st.progress(0, text="Preparing fast benchmark…")
+
+            # 1) Light sample to speed things up (keeps signal distribution by simple tail slice)
+            df_bm = df.copy()
+            max_rows = 1500
+            if len(df_bm) > max_rows:
+                df_bm = df_bm.tail(max_rows)
+
+            # Features/labels
+            labels = [-1, 0, 1]
+            X_all = df_bm[st.session_state.ml_features].select_dtypes(include=[np.number]).fillna(0)
+            y_all = df_bm["Signal"].values
+
+            # Stratified split (quick)
             try:
-                with st.spinner("🏁 Benchmarking models (LogReg, RandomForest, XGBoost)..."):
-                    bm_df = benchmark_models(df.copy())
+                X_tr, X_te, y_tr, y_te = train_test_split(
+                    X_all, y_all, test_size=0.2, random_state=42, stratify=y_all
+                )
+            except Exception:
+                # Fallback if stratify fails
+                X_tr, X_te, y_tr, y_te = train_test_split(X_all, y_all, test_size=0.2, random_state=42)
 
-                if bm_df is not None and not bm_df.empty:
-                    # Keep for later reuse (e.g., downloads on reruns)
-                    st.session_state["benchmark_df"] = bm_df
+            # Helpers
+            def _per_class_stats(cm_mat, cls_labels):
+                rows = []
+                for i, cls in enumerate(cls_labels):
+                    TP = cm_mat[i, i]
+                    FN = cm_mat[i, :].sum() - TP
+                    FP = cm_mat[:, i].sum() - TP
+                    TN = cm_mat.sum() - (TP + FN + FP)
+                    sens = TP / (TP + FN) if (TP + FN) > 0 else 0.0         # recall
+                    spec = TN / (TN + FP) if (TN + FP) > 0 else 0.0         # specificity
+                    prec = TP / (TP + FP) if (TP + FP) > 0 else 0.0         # precision
+                    rows.append([cls, prec, sens, spec])
+                return pd.DataFrame(rows, columns=["Class", "Precision", "Sensitivity (Recall)", "Specificity"])
 
-                    st.markdown("### 🏆 Benchmark (Auto)")
-                    st.dataframe(bm_df, use_container_width=True)
+            def _macro_auc(model, X, y, cls_labels):
+                try:
+                    if not hasattr(model, "predict_proba"):
+                        return np.nan
+                    proba = model.predict_proba(X)
+                    y_bin = label_binarize(y, classes=cls_labels)
+                    if y_bin.shape[1] != proba.shape[1]:
+                        return np.nan
+                    aucs = []
+                    for k in range(y_bin.shape[1]):
+                        try:
+                            aucs.append(roc_auc_score(y_bin[:, k], proba[:, k]))
+                        except Exception:
+                            pass
+                    return float(np.mean(aucs)) if aucs else np.nan
+                except Exception:
+                    return np.nan
 
-                    # --- Small comparison charts (bar) ---
-                    import plotly.express as px
+            # 2) Run models one-by-one and STREAM results
+            bench_rows = []
+            bm_df_live = pd.DataFrame(columns=[
+                "Model", "Accuracy", "F1-Score", "ROC AUC", "AUC (macro)", "Specificity (macro)"
+            ])
 
+            def _render_live(bm_df_live):
+                if not bm_df_live.empty:
+                    bm_holder_table.dataframe(bm_df_live, use_container_width=True)
+
+                    # small charts
                     def _existing(cols):
-                        return [c for c in cols if c in bm_df.columns]
+                        return [c for c in cols if c in bm_df_live.columns]
 
-                    # 1) Accuracy & F1-Score chart (grouped bars)
-                    _m1 = _existing(["Accuracy", "F1-Score"])
-                    if _m1:
-                        bm_m1 = bm_df.melt(id_vars="Model", value_vars=_m1,
-                                           var_name="Metric", value_name="Score")
-                        fig_bm1 = px.bar(bm_m1, x="Model", y="Score", color="Metric",
-                                         barmode="group", text_auto=".2f",
-                                         title="Accuracy / F1-Score by Model")
-                        fig_bm1.update_layout(template="plotly_white", height=380)
-                        plotly_chart_unique(fig_bm1, "ml_benchmark_chart_m1")
+                    m1 = _existing(["Accuracy", "F1-Score"])
+                    if m1:
+                        dd = bm_df_live.melt(id_vars="Model", value_vars=m1, var_name="Metric", value_name="Score")
+                        fig1 = px.bar(dd, x="Model", y="Score", color="Metric",
+                                      barmode="group", text_auto=".2f",
+                                      title="Accuracy / F1-Score by Model")
+                        fig1.update_layout(template="plotly_white", height=360)
+                        bm_holder_chart1.plotly_chart(fig1, use_container_width=True)
+                    m2 = _existing(["ROC AUC", "AUC (macro)", "Specificity (macro)"])
+                    if m2:
+                        dd2 = bm_df_live.melt(id_vars="Model", value_vars=m2, var_name="Metric", value_name="Score")
+                        fig2 = px.bar(dd2, x="Model", y="Score", color="Metric",
+                                      barmode="group", text_auto=".2f",
+                                      title="AUC / Specificity by Model")
+                        fig2.update_layout(template="plotly_white", height=360)
+                        bm_holder_chart2.plotly_chart(fig2, use_container_width=True)
 
-                    # 2) AUC Macro + Specificity chart (if present)
-                    #    Depending on your updated benchmark_models, these columns might be
-                    #    named "ROC AUC" (weighted), "AUC (macro)", and "Specificity (macro)".
-                    _m2 = _existing(["ROC AUC", "AUC (macro)", "Specificity (macro)"])
-                    if _m2:
-                        bm_m2 = bm_df.melt(id_vars="Model", value_vars=_m2,
-                                           var_name="Metric", value_name="Score")
-                        fig_bm2 = px.bar(bm_m2, x="Model", y="Score", color="Metric",
-                                         barmode="group", text_auto=".2f",
-                                         title="AUC / Specificity by Model")
-                        fig_bm2.update_layout(template="plotly_white", height=380)
-                        plotly_chart_unique(fig_bm2, "ml_benchmark_chart_m2")
-
-                    # --- Download CSV for benchmark ---
-                    st.download_button(
-                        label="📥 Download Benchmark CSV",
-                        data=bm_df.to_csv(index=False).encode(),
-                        file_name=f"{selected_symbol}_Benchmark.csv",
-                        mime="text/csv",
-                        key="dl_benchmark_csv_auto"
-                    )
-                else:
-                    st.warning("⚠️ Benchmark returned no results.")
+            # --- Logistic Regression (fast) ---
+            try:
+                from sklearn.linear_model import LogisticRegression
+                bm_progress.progress(10, text="Benchmark: Logistic Regression…")
+                t0 = time.perf_counter()
+                lr = LogisticRegression(multi_class="multinomial", max_iter=500)
+                lr.fit(X_tr, y_tr)
+                y_pred = lr.predict(X_te)
+                cm_lr = confusion_matrix(y_te, y_pred, labels=labels)
+                per_class_lr = _per_class_stats(cm_lr, labels)
+                spec_macro_lr = float(per_class_lr["Specificity"].mean())
+                row = {
+                    "Model": "Logistic Regression",
+                    "Accuracy": accuracy_score(y_te, y_pred),
+                    "F1-Score": f1_score(y_te, y_pred, average="weighted", zero_division=0),
+                    "ROC AUC": _macro_auc(lr, X_te, y_te, labels),  # weighted ‘ROC AUC’ may be NaN for LR with OVR; keep macro instead
+                    "AUC (macro)": _macro_auc(lr, X_te, y_te, labels),
+                    "Specificity (macro)": spec_macro_lr
+                }
+                bench_rows.append(row)
+                bm_df_live = pd.DataFrame(bench_rows)
+                _render_live(bm_df_live)
+                bm_progress.progress(35, text=f"LR done in {time.perf_counter()-t0:.2f}s")
             except Exception as e:
-                logging.error(f"Benchmark failed: {e}")
-                st.error(f"❌ Benchmark failed: {e}")
+                logging.warning(f"LR benchmark failed: {e}")
+
+            # --- Random Forest (light) ---
+            try:
+                from sklearn.ensemble import RandomForestClassifier
+                bm_progress.progress(45, text="Benchmark: Random Forest…")
+                t0 = time.perf_counter()
+                rf = RandomForestClassifier(n_estimators=120, random_state=42, n_jobs=-1)
+                rf.fit(X_tr, y_tr)
+                y_pred = rf.predict(X_te)
+                cm_rf = confusion_matrix(y_te, y_pred, labels=labels)
+                per_class_rf = _per_class_stats(cm_rf, labels)
+                spec_macro_rf = float(per_class_rf["Specificity"].mean())
+                row = {
+                    "Model": "Random Forest",
+                    "Accuracy": accuracy_score(y_te, y_pred),
+                    "F1-Score": f1_score(y_te, y_pred, average="weighted", zero_division=0),
+                    "ROC AUC": _macro_auc(rf, X_te, y_te, labels),
+                    "AUC (macro)": _macro_auc(rf, X_te, y_te, labels),
+                    "Specificity (macro)": spec_macro_rf
+                }
+                bench_rows.append(row)
+                bm_df_live = pd.DataFrame(bench_rows)
+                _render_live(bm_df_live)
+                bm_progress.progress(70, text=f"RF done in {time.perf_counter()-t0:.2f}s")
+            except Exception as e:
+                logging.warning(f"RF benchmark failed: {e}")
+
+            # --- XGBoost (light, guarded) ---
+            try:
+                import xgboost as xgb
+                from xgboost import XGBClassifier
+                bm_progress.progress(80, text="Benchmark: XGBoost…")
+                t0 = time.perf_counter()
+                xgb_model = XGBClassifier(
+                    objective="multi:softprob",
+                    random_state=42,
+                    n_estimators=120,        # lighter than default
+                    max_depth=3,
+                    learning_rate=0.12,
+                    subsample=0.9,
+                    colsample_bytree=0.9,
+                    tree_method="hist",
+                    reg_lambda=1.0,
+                    eval_metric="mlogloss",
+                    n_jobs=1,
+                    verbosity=0,
+                )
+                # plain fit (fast + version-safe)
+                xgb_model.fit(X_tr.astype(np.float32), y_tr)
+                y_pred = xgb_model.predict(X_te.astype(np.float32))
+                cm_xgb = confusion_matrix(y_te, y_pred, labels=labels)
+                per_class_xgb = _per_class_stats(cm_xgb, labels)
+                spec_macro_xgb = float(per_class_xgb["Specificity"].mean())
+                row = {
+                    "Model": "XGBoost",
+                    "Accuracy": accuracy_score(y_te, y_pred),
+                    "F1-Score": f1_score(y_te, y_pred, average="weighted", zero_division=0),
+                    "ROC AUC": _macro_auc(xgb_model, X_te.astype(np.float32), y_te, labels),
+                    "AUC (macro)": _macro_auc(xgb_model, X_te.astype(np.float32), y_te, labels),
+                    "Specificity (macro)": spec_macro_xgb
+                }
+                bench_rows.append(row)
+                bm_df_live = pd.DataFrame(bench_rows)
+                _render_live(bm_df_live)
+                bm_progress.progress(95, text=f"XGB done in {time.perf_counter()-t0:.2f}s")
+            except Exception as e:
+                logging.info(f"XGBoost benchmark skipped/failed: {e}")
+
+            # Finalize + download
+            if not bm_df_live.empty:
+                st.session_state["benchmark_df"] = bm_df_live.copy()
+                bm_progress.progress(100, text="Benchmark completed")
+                st.download_button(
+                    label="📥 Download Benchmark CSV",
+                    data=bm_df_live.to_csv(index=False).encode(),
+                    file_name=f"{selected_symbol}_Benchmark.csv",
+                    mime="text/csv",
+                    key="dl_benchmark_csv_auto_fast"
+                )
+            else:
+                bm_progress.empty()
+                st.warning("⚠️ No benchmark results to display (all models failed).")
+
 
     
         except Exception as e:
