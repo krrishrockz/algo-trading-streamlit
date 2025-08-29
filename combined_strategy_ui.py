@@ -132,6 +132,18 @@ logger.info("Application started.")
 
 # === Streamlit Config ===
 st.set_page_config(page_title="AI Trading Strategy Dashboard", layout="wide", initial_sidebar_state="expanded")
+# ---- UI polish (sidebar spacing + "selected" chip) ----
+_SIDEBAR_CSS = """
+section[data-testid="stSidebar"] .block-container { padding-top:.6rem; padding-bottom:.6rem; }
+section[data-testid="stSidebar"] [data-testid="stVerticalBlock"]{ gap:.35rem !important; }
+section[data-testid="stSidebar"] hr { margin:.4rem 0 .6rem 0; opacity:.25 }
+.sidebar-chip {
+  background:#2d6a4f; color:#fff; border-radius:10px; padding:.55rem .75rem;
+  font-weight:600; border:1px solid #1b4332; margin:.25rem 0 .35rem 0;
+}
+"""
+st.markdown(f"<style>{_SIDEBAR_CSS}</style>", unsafe_allow_html=True)
+
 
 # --- 🎨 UI Styling ---
 st.markdown("""
@@ -180,35 +192,41 @@ st.title("📊 AI-Based Algorithmic Trading Platform")
 
 # --- Sidebar ---
 with st.sidebar:
-    st.markdown("## ⚙️ Configuration Panel")
-
-    # --- Top: Stock & Date Selection ---
     st.markdown("### 📊 Stock Selection")
 
-    # Stock symbol input with placeholder instead of default value
-    raw_symbol = st.text_input(
-        "Enter Stock Symbol:",
-        value="",  # keep empty so placeholder shows
-        placeholder="RELIANCE",  # shows faded RELIANCE
-        key="stock_input"
-    ).upper().strip()
+	# Base symbol (no suffix) → we’ll resolve via buttons
+	base_symbol = st.text_input(
+		"Enter Stock Symbol (no suffix)",
+		value=st.session_state.get("base_symbol", ""),
+		placeholder="TATASTEEL or RELIANCE",
+		key="base_symbol",
+	).upper().strip()
 
-    # Check if user already provided a suffix (.NS or .BO)
-    if raw_symbol.endswith(".NS") or raw_symbol.endswith(".BO"):
-        selected_symbol = raw_symbol
-        st.caption("📌 Detected full ticker format, skipping exchange selection.")
-    elif raw_symbol:  # only show exchange if something is typed
-        exchange = st.radio(
-            "Select Exchange:",
-            ["NSE", "BSE"],
-            index=0,  # Default NSE
-            horizontal=True,
-            key="exchange_choice"
-        )
-        selected_symbol = f"{raw_symbol}.NS" if exchange == "NSE" else f"{raw_symbol}.BO"
-    else:
-        selected_symbol = None
-        st.warning("⚠️ Please enter a stock symbol.")
+	def _norm(sym: str, suffix: str) -> str:
+		sym = (sym or "").upper().strip()
+		return sym if "." in sym else (sym + suffix)
+
+	c1, c2, c3 = st.columns(3)
+	if c1.button("Use NSE (.NS)", use_container_width=True, key="btn_use_ns"):
+		st.session_state["selected_symbol"] = _norm(base_symbol, ".NS")
+	if c2.button("Use BSE (.BO)", use_container_width=True, key="btn_use_bo"):
+		st.session_state["selected_symbol"] = _norm(base_symbol, ".BO")
+	if c3.button("Raw", use_container_width=True, key="btn_use_raw"):
+		st.session_state["selected_symbol"] = base_symbol
+
+	# Popular quick picks to avoid typing
+	_qp = ["RELIANCE.NS","HDFCBANK.NS","INFY.NS","TCS.NS","ICICIBANK.NS","TATASTEEL.NS","SBIN.NS","HINDUNILVR.NS"]
+	qp_choice = st.selectbox("Or pick quickly", options=["—"] + _qp, index=0, key="quick_pick")
+	if qp_choice != "—":
+		st.session_state["selected_symbol"] = qp_choice
+
+	# Final resolved symbol (used by the rest of the app)
+	selected_symbol = st.session_state.get("selected_symbol")
+
+	# If nothing resolved yet, show a gentle nudge (the validation/success block below stays as-is)
+	if not selected_symbol:
+		st.warning("⚠️ Please enter a stock symbol or use the buttons/quick picks.")
+
 
     st.markdown("### 📅 Date Range")
     start_date = st.date_input("Start Date", value=dt.date(2022, 1, 1), key="start_date")
@@ -228,6 +246,21 @@ with st.sidebar:
     # Pause auto-refresh when long tasks are running
     if refresh_rate > 0 and not st.session_state.get("busy", False):
         st_autorefresh(interval=refresh_rate * 1000, key="refresh_timer")
+	
+	# Compact "Selected" chip (shows current ticker)
+	if selected_symbol:
+		st.markdown(f"<div class='sidebar-chip'>✅ Selected: {selected_symbol}</div>", unsafe_allow_html=True)
+
+	# Use remaining sidebar space: quick date shortcuts + a minor toggle
+	with st.expander("⚡ Shortcuts", expanded=False):
+		sc1, sc2, sc3 = st.columns(3)
+		if sc1.button("1M"):
+			st.session_state["start_date"] = pd.Timestamp.today().date() - pd.DateOffset(months=1)
+		if sc2.button("3M"):
+			st.session_state["start_date"] = pd.Timestamp.today().date() - pd.DateOffset(months=3)
+		if sc3.button("1Y"):
+			st.session_state["start_date"] = pd.Timestamp.today().date() - pd.DateOffset(years=1)
+		st.toggle("Dark Grid", key="dark_grid", value=st.session_state.get("dark_grid", True))
 
 
     st.divider()
@@ -1860,5 +1893,3 @@ with tab6:
                 st.caption(f"Last alert at **{ts}**")
         except Exception as e:
             st.warning(f"Alert demo error: {e}")
-
-
