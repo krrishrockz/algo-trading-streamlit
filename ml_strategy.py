@@ -360,10 +360,11 @@ def run_ml_strategy(ticker, start, end, model="Logistic Regression", initial_cas
         # Train model
         if model == "XGBoost":
             eval_set = [(X_train, y_train), (X_test, y_test)]
+            callbacks = [xgb.callback.EarlyStopping(rounds=50, save_best=True)]
             clf.fit(
                 X_train, y_train,
                 eval_set=eval_set,
-                early_stopping_rounds=50,
+                callbacks=callbacks,
                 verbose=False
             )
         else:
@@ -563,11 +564,12 @@ def train_xgboost_model(df):
     # Cast to float32 for speed
     X_train = X_train.astype(np.float32)
     X_test  = X_test.astype(np.float32)
+    callbacks = [xgb.callback.EarlyStopping(rounds=50, save_best=True)]
 
     model.fit(
         X_train, y_train,
         eval_set=[(X_train, y_train), (X_test, y_test)],
-        early_stopping_rounds=50,
+        callbacks=callbacks,
         verbose=False
     )
     y_pred = model.predict(X_test)
@@ -637,3 +639,4 @@ def compute_risk_metrics(equity: pd.Series, periods_per_year: int = 252, rf: flo
     max_dd = float(drawdown.min()) if not drawdown.empty else 0.0
 
     return {"sharpe": float(sharpe), "sortino": float(sortino), "max_dd": max_dd}
+
