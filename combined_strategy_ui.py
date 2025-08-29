@@ -939,33 +939,6 @@ with tab2:
                             mime_type="application/json"
                         )
 
-                    # --- NEW: always show the SHAP “force” as a robust Plotly bar and stash PNG ---
-                    if results.get("shap_force"):
-                        st.markdown("#### SHAP Force Plot")
-                        plotly_chart_unique(results["shap_force"], "ml_shap_force")
-                        try:
-                            import plotly.io as pio
-                            st.session_state["explain_shap_force_png"] = pio.to_image(results["shap_force"], format="png", scale=2, width=1000, height=600)
-                        except Exception:
-                            st.session_state["explain_shap_force_png"] = None
-
-                    # Keep your prior HTML-based force plot code, but gate it so it doesn't auto-run
-                    # (prevents Streamlit collapse on some hosts). Toggle via session if you want it.
-                    if results.get("shap_force_html") and st.session_state.get("enable_shap_html", False):
-                        st.markdown("#### SHAP Force Plot (Interactive HTML)")
-                        try:
-                            import shap, streamlit.components.v1 as components
-                            shap_html_full = f"<html><head>{shap.getjs()}</head><body style='margin:0'>{results['shap_force_html']}</body></html>"
-                            components.html(shap_html_full, height=600, scrolling=True)
-                            safe_download(
-                                label="📥 Download SHAP Force (HTML)",
-                                data_bytes=shap_html_full.encode("utf-8"),
-                                default_name=f"{selected_symbol}_{ml_model}_SHAP_Force.html",
-                                mime_type="text/html"
-                            )
-                        except Exception:
-                            pass
-
                 except Exception as e:
                     st.error(f"❌ Explainability Error: {e}")
         except Exception as e:
@@ -1875,3 +1848,4 @@ with tab6:
                 st.caption(f"Last alert at **{ts}**")
         except Exception as e:
             st.warning(f"Alert demo error: {e}")
+
