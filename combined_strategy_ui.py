@@ -284,18 +284,17 @@ with st.sidebar:
             st.error("❌ Could not validate symbol.")
 
     # --- Compact Date + Refresh (side-by-side) ---
-    st.markdown("### 📅 & 🔁 Range / Refresh")
-    col_dates, col_refresh = st.columns([1, 1])
+    # --- Date Range (vertical) ---
+    st.markdown("### 📅 Date Range")
+    start_date = st.date_input("Start Date", value=dt.date(2022, 1, 1), key="start_date")
+    end_date = st.date_input("End Date", value=dt.date.today(), key="end_date")
 
-    with col_dates:
-        start_date = st.date_input("Start", value=dt.date(2022, 1, 1), key="start_date")
-        end_date   = st.date_input("End",   value=dt.date.today(),   key="end_date")
-    
-    with col_refresh:
-        refresh_rate = st.slider("Auto Refresh (sec)", 0, 3000, 300, step=10, key="refresh_rate")
-    # Pause auto-refresh when long tasks are running
-        if refresh_rate > 0 and not st.session_state.get("busy", False):
-            st_autorefresh(interval=refresh_rate * 1000, key="refresh_timer")
+    # --- Auto Refresh (vertical) ---
+    st.markdown("### 🔁 Auto Refresh")
+    refresh_rate = st.slider("Auto Refresh (sec)", 0, 3000, 300, step=10, key="refresh_rate")
+    if refresh_rate > 0 and not st.session_state.get("busy", False):
+        st_autorefresh(interval=refresh_rate * 1000, key="refresh_timer")
+
 
     # Compact "Selected" chip (single place, no duplicate)
     if selected_symbol:
