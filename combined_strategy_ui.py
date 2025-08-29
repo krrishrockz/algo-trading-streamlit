@@ -697,23 +697,23 @@ with tab1:
 
             # ---------- Metrics ----------
             st.markdown("### 📈 Forecast Accuracy Metrics")
-            rmse = mae = mape = np.nan  # defaults to avoid 'not defined' on failure
+            rmse = mae = mape = mse = np.nan  # defaults
             try:
                 if len(df["Close"]) >= forecast_days:
-                    # Compare last available historical closes to first N forecast points
                     actuals = df["Close"].iloc[-forecast_days:].values.astype(float)
                     preds = forecast_df["Forecast"].iloc[:forecast_days].values.astype(float)
                     if len(actuals) > 0 and len(preds) > 0 and len(actuals) == len(preds):
-                        rmse = float(np.sqrt(mean_squared_error(actuals, preds)))
+                        mse = float(mean_squared_error(actuals, preds))
+                        rmse = float(np.sqrt(mse))
                         mae = float(mean_absolute_error(actuals, preds))
-                        # avoid division by zero for MAPE
                         nz = actuals != 0
                         if np.any(nz):
                             mape = float(np.mean(np.abs((actuals[nz] - preds[nz]) / actuals[nz])) * 100)
-                        col1, col2, col3 = st.columns(3)
-                        col1.metric("RMSE", f"{rmse:.2f}")
-                        col2.metric("MAE", f"{mae:.2f}")
-                        col3.metric("MAPE", "—" if np.isnan(mape) else f"{mape:.2f}%")
+                        c1, c2, c3, c4 = st.columns(4)
+                        c1.metric("MSE", f"{mse:.2f}")
+                        c2.metric("RMSE", f"{rmse:.2f}")
+                        c3.metric("MAE", f"{mae:.2f}")
+                        c4.metric("MAPE", "—" if np.isnan(mape) else f"{mape:.2f}%")
                     else:
                         st.warning("Cannot calculate accuracy metrics: Insufficient data for comparison.")
                 else:
@@ -721,6 +721,7 @@ with tab1:
             except Exception as _merr:
                 logging.warning(f"Metrics computation issue: {_merr}")
                 st.warning("Cannot calculate accuracy metrics due to a computation issue.")
+
 
             # ---- SARIMAX diagnostics: show whether exogenous sentiment was used
             if forecast_model == "SARIMAX" and isinstance(metrics, dict) and "exog_used" in metrics:
@@ -847,23 +848,60 @@ with tab2:
             # ================= Metrics =================
             train_size = int(len(df) * (train_split / 100))
             test_df = df[train_size:]
-            accuracy = precision = recall = f1 = auc = 0.0
-            cm, y_true_bin = None, None
+            accuracy = precision = recall = f1 = auc_macro = 0.0
+            cm, y_true_bin, per_class_table = None, None, None
             total_samples = 0
             try:
                 if not test_df.empty and 'Signal' in test_df and 'Prediction' in test_df:
-                    from sklearn.metrics import accuracy_score, precision_score, recall_score, f1_score, roc_auc_score, confusion_matrix
+                    from sklearn.metrics import (
+                        accuracy_score, precision_score, recall_score, f1_score,
+                        roc_auc_score, confusion_matrix
+                    )
                     from sklearn.preprocessing import label_binarize
+
                     y_true = test_df['Signal'].values
                     y_pred = test_df['Prediction'].values
+                    labels = [-1, 0, 1]
+
                     accuracy = accuracy_score(y_true, y_pred)
                     precision = precision_score(y_true, y_pred, average='weighted', zero_division=0)
                     recall = recall_score(y_true, y_pred, average='weighted', zero_division=0)
                     f1 = f1_score(y_true, y_pred, average='weighted', zero_division=0)
                     total_samples = len(y_true)
-                    cm = confusion_matrix(y_true, y_pred, labels=[-1, 0, 1])
+                    cm = confusion_matrix(y_true, y_pred, labels=labels)
+
+                    # Sensitivity / Specificity per class
+                    specifics = []
+                    for i, cls in enumerate(labels):
+                        TP = cm[i, i]
+                        FN = cm[i, :].sum() - TP
+                        FP = cm[:, i].sum() - TP
+                        TN = cm.sum() - (TP + FN + FP)
+                        sens = TP / (TP + FN) if (TP + FN) > 0 else 0.0
+                        spec = TN / (TN + FP) if (TN + FP) > 0 else 0.0
+                        prec_cls = TP / (TP + FP) if (TP + FP) > 0 else 0.0
+                        specifics.append([cls, prec_cls, sens, spec])
+                    per_class_table = pd.DataFrame(
+                        specifics, columns=["Class", "Precision", "Sensitivity (Recall)", "Specificity"]
+                    )
+
+                    # Macro AUC (OVR)
+                    if hasattr(trained_model, "predict_proba"):
+                        X_test_metrics = test_df[feature_cols]
+                        y_proba = trained_model.predict_proba(X_test_metrics)
+                        y_true_bin = label_binarize(y_true, classes=labels)
+                        if y_true_bin.shape[1] == y_proba.shape[1]:
+                            aucs = []
+                            for k in range(y_true_bin.shape[1]):
+                                try:
+                                    aucs.append(roc_auc_score(y_true_bin[:, k], y_proba[:, k]))
+                                except Exception:
+                                    pass
+                            if aucs:
+                                auc_macro = float(np.mean(aucs))
             except Exception as e:
                 logging.error(f"Metrics computation failed: {e}")
+
 
             # ================= Trade Signals =================
             st.markdown("### 📈 Trade Signals")
@@ -939,6 +977,33 @@ with tab2:
             col2.metric("Recall", f"{recall:.2f}")
             col3.metric("F1-Score", f"{f1:.2f}")
             st.metric("Total Samples", f"{total_samples}")
+            
+            # ================= Extra Metrics =================
+            st.markdown("### 📊 Extended Metrics")
+            col1, col2 = st.columns(2)
+            col1.metric("AUC (macro OVR)", f"{auc_macro:.2f}")
+            if per_class_table is not None:
+                macro_spec = float(per_class_table["Specificity"].mean())
+                col2.metric("Specificity (macro)", f"{macro_spec:.2f}")
+
+            # Cross Table view of Confusion Matrix
+            if cm is not None:
+                st.markdown("#### Cross Table")
+                cm_df = pd.DataFrame(cm, index=[f"True {l}" for l in labels], columns=[f"Pred {l}" for l in labels])
+                st.dataframe(cm_df, use_container_width=True)
+
+            # Per-class precision/recall/specificity
+            if per_class_table is not None:
+                st.markdown("#### Per-class Metrics")
+                st.dataframe(
+                    per_class_table.style.format({
+                        "Precision": "{:.2f}",
+                        "Sensitivity (Recall)": "{:.2f}",
+                        "Specificity": "{:.2f}"
+                    }),
+                    use_container_width=True
+                )
+
 
             # ================= Confusion Matrix =================
             st.markdown("### 📋 Confusion Matrix")
@@ -1936,6 +2001,7 @@ with tab6:
                 st.caption(f"Last alert at **{ts}**")
         except Exception as e:
             st.warning(f"Alert demo error: {e}")
+
 
 
 
