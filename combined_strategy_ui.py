@@ -1096,68 +1096,61 @@ with tab2:
                     st.error(f"❌ Explainability Error: {e}")
                     
             # ================= Benchmark Models =================
-                                    # ---------- Benchmark Comparison Charts ----------
-            st.markdown("#### 📊 Benchmark Comparison Charts")
+            # ================= Auto Benchmark (runs right after ML) =================
+            try:
+                with st.spinner("🏁 Benchmarking models (LogReg, RandomForest, XGBoost)..."):
+                    bm_df = benchmark_models(df.copy())
 
-            import plotly.express as px
+                if bm_df is not None and not bm_df.empty:
+                    # Keep for later reuse (e.g., downloads on reruns)
+                    st.session_state["benchmark_df"] = bm_df
 
-            # Accuracy chart
-            fig_acc = px.bar(
-                bm_df,
-                x="Model",
-                y="Accuracy",
-                text="Accuracy",
-                title="Model Accuracy",
-                color="Model",
-                color_discrete_sequence=px.colors.qualitative.Set2
-            )
-            fig_acc.update_traces(texttemplate="%{text:.2f}", textposition="outside")
-            fig_acc.update_layout(yaxis=dict(range=[0, 1]))
-            plotly_chart_unique(fig_acc, "bm_acc")
+                    st.markdown("### 🏆 Benchmark (Auto)")
+                    st.dataframe(bm_df, use_container_width=True)
 
-            # F1-Score chart
-            fig_f1 = px.bar(
-                bm_df,
-                x="Model",
-                y="F1-Score",
-                text="F1-Score",
-                title="Model F1-Score",
-                color="Model",
-                color_discrete_sequence=px.colors.qualitative.Set3
-            )
-            fig_f1.update_traces(texttemplate="%{text:.2f}", textposition="outside")
-            fig_f1.update_layout(yaxis=dict(range=[0, 1]))
-            plotly_chart_unique(fig_f1, "bm_f1")
+                    # --- Small comparison charts (bar) ---
+                    import plotly.express as px
 
-            # AUC Macro chart
-            if "AUC (macro)" in bm_df.columns:
-                fig_auc = px.bar(
-                    bm_df,
-                    x="Model",
-                    y="AUC (macro)",
-                    text="AUC (macro)",
-                    title="Model AUC (macro OVR)",
-                    color="Model",
-                    color_discrete_sequence=px.colors.qualitative.Bold
-                )
-                fig_auc.update_traces(texttemplate="%{text:.2f}", textposition="outside")
-                fig_auc.update_layout(yaxis=dict(range=[0, 1]))
-                plotly_chart_unique(fig_auc, "bm_auc")
+                    def _existing(cols):
+                        return [c for c in cols if c in bm_df.columns]
 
-            # Specificity Macro chart
-            if "Specificity (macro)" in bm_df.columns:
-                fig_spec = px.bar(
-                    bm_df,
-                    x="Model",
-                    y="Specificity (macro)",
-                    text="Specificity (macro)",
-                    title="Model Specificity (macro)",
-                    color="Model",
-                    color_discrete_sequence=px.colors.qualitative.Pastel
-                )
-                fig_spec.update_traces(texttemplate="%{text:.2f}", textposition="outside")
-                fig_spec.update_layout(yaxis=dict(range=[0, 1]))
-                plotly_chart_unique(fig_spec, "bm_spec")
+                    # 1) Accuracy & F1-Score chart (grouped bars)
+                    _m1 = _existing(["Accuracy", "F1-Score"])
+                    if _m1:
+                        bm_m1 = bm_df.melt(id_vars="Model", value_vars=_m1,
+                                           var_name="Metric", value_name="Score")
+                        fig_bm1 = px.bar(bm_m1, x="Model", y="Score", color="Metric",
+                                         barmode="group", text_auto=".2f",
+                                         title="Accuracy / F1-Score by Model")
+                        fig_bm1.update_layout(template="plotly_white", height=380)
+                        plotly_chart_unique(fig_bm1, "ml_benchmark_chart_m1")
+
+                    # 2) AUC Macro + Specificity chart (if present)
+                    #    Depending on your updated benchmark_models, these columns might be
+                    #    named "ROC AUC" (weighted), "AUC (macro)", and "Specificity (macro)".
+                    _m2 = _existing(["ROC AUC", "AUC (macro)", "Specificity (macro)"])
+                    if _m2:
+                        bm_m2 = bm_df.melt(id_vars="Model", value_vars=_m2,
+                                           var_name="Metric", value_name="Score")
+                        fig_bm2 = px.bar(bm_m2, x="Model", y="Score", color="Metric",
+                                         barmode="group", text_auto=".2f",
+                                         title="AUC / Specificity by Model")
+                        fig_bm2.update_layout(template="plotly_white", height=380)
+                        plotly_chart_unique(fig_bm2, "ml_benchmark_chart_m2")
+
+                    # --- Download CSV for benchmark ---
+                    st.download_button(
+                        label="📥 Download Benchmark CSV",
+                        data=bm_df.to_csv(index=False).encode(),
+                        file_name=f"{selected_symbol}_Benchmark.csv",
+                        mime="text/csv",
+                        key="dl_benchmark_csv_auto"
+                    )
+                else:
+                    st.warning("⚠️ Benchmark returned no results.")
+            except Exception as e:
+                logging.error(f"Benchmark failed: {e}")
+                st.error(f"❌ Benchmark failed: {e}")
 
     
         except Exception as e:
@@ -2067,3 +2060,7 @@ with tab6:
                 st.caption(f"Last alert at **{ts}**")
         except Exception as e:
             st.warning(f"Alert demo error: {e}")
+
+
+
+
