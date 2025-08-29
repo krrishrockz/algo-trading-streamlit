@@ -1,5 +1,7 @@
 import logging
+import os
 import numpy as np
+
 import pandas as pd
 import yfinance as yf
 from sklearn.metrics import mean_squared_error, mean_absolute_error
@@ -11,13 +13,19 @@ from tensorflow.keras.layers import LSTM, Dense
 from sklearn.preprocessing import MinMaxScaler
 import matplotlib.pyplot as plt
 
+# Ensure logs directory exists (works locally and on Streamlit Cloud)
+LOG_DIR = os.path.join(os.path.dirname(__file__), "logs")
+os.makedirs(LOG_DIR, exist_ok=True)
+LOG_FILE = os.path.join(LOG_DIR, "time_series.log")
+
 logging.basicConfig(
-    filename="logs/time_series.log",
+    filename=LOG_FILE,
     filemode="a",
     level=logging.INFO,
     format="%(asctime)s - %(levelname)s - %(message)s",
 )
 logger = logging.getLogger(__name__)
+
 
 
 # ---------------------- Data Fetch ----------------------
