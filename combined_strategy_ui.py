@@ -535,6 +535,18 @@ with tab1:
             )
             # Build forecast DataFrame
             forecast_df = pd.DataFrame({"Forecast": np.asarray(forecast_result)}, index=bdays)
+            # --- Normalize CI arrays to match forecast_df index ---
+            if (lower is not None) and (upper is not None):
+                # Convert to 1D numpy and trim/pad to match length
+                lower = np.asarray(lower).reshape(-1)[: len(forecast_df)]
+                upper = np.asarray(upper).reshape(-1)[: len(forecast_df)]
+            
+                # If somehow shorter than needed, pad with NaN (rare)
+                if len(lower) < len(forecast_df):
+                    lower = np.pad(lower, (0, len(forecast_df) - len(lower)), constant_values=np.nan)
+                if len(upper) < len(forecast_df):
+                    upper = np.pad(upper, (0, len(forecast_df) - len(upper)), constant_values=np.nan)
+
 
             chart_filename = (
                 f"{selected_symbol}_{forecast_model}_Forecast.png"
@@ -1848,4 +1860,5 @@ with tab6:
                 st.caption(f"Last alert at **{ts}**")
         except Exception as e:
             st.warning(f"Alert demo error: {e}")
+
 
