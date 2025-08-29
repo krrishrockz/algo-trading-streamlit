@@ -940,56 +940,56 @@ with tab2:
                             mime_type="application/json"
                         )
                     if results.get("shap_force"):
-                    st.markdown("#### SHAP Force Plot")
-                    try:
-                        import shap
-                        # results["shap_force"] may be a SHAP object or already HTML
-                        obj = results["shap_force"]
-                        if hasattr(obj, "to_html"):
-                            shap_html_body = obj.to_html()
-                        elif isinstance(obj, str):
-                            shap_html_body = obj
-                        else:
-                            # Last-resort: try legacy .html() if present
-                            shap_html_body = getattr(obj, "html", lambda: "")() or ""
-
-                        # Ensure SHAP JS is included so the force plot renders in Streamlit
-                        shap_html_full = f"<html><head>{shap.getjs()}</head><body style='margin:0'>{shap_html_body}</body></html>"
-
-                        components.html(shap_html_full, height=600, scrolling=True)
-
-                        safe_download(
-                            label="📥 Download SHAP Force (HTML)",
-                            data_bytes=shap_html_full.encode("utf-8"),
-                            default_name=f"{selected_symbol}_{ml_model}_SHAP_Force.html",
-                            mime_type="text/html"
-                        )
-                    except Exception as e:
-                        # Static fallback → try to export a PNG
-                        import io, matplotlib.pyplot as plt
+                        st.markdown("#### SHAP Force Plot")
                         try:
-                            fig = results.get("shap_force_matplot")
-                            if fig is None:
-                                # If your generator stashed an Explanation, try to draw one
-                                exp = results.get("shap_explanation")
-                                if exp is not None:
-                                    import shap as _shap
-                                    _shap.plots.force(exp, matplotlib=True, show=False)
-                                    fig = plt.gcf()
-                            if fig is not None:
-                                buf = io.BytesIO()
-                                fig.savefig(buf, format="png", dpi=150, bbox_inches="tight")
-                                st.image(buf.getvalue(), caption="SHAP Force (static)")
-                                safe_download(
-                                    label="📥 Download SHAP Force (PNG)",
-                                    data_bytes=buf.getvalue(),
-                                    default_name=f"{selected_symbol}_{ml_model}_SHAP_Force.png",
-                                    mime_type="image/png"
-                                )
+                            import shap
+                            # results["shap_force"] may be a SHAP object or already HTML
+                            obj = results["shap_force"]
+                            if hasattr(obj, "to_html"):
+                                shap_html_body = obj.to_html()
+                            elif isinstance(obj, str):
+                                shap_html_body = obj
                             else:
+                                # Last-resort: try legacy .html() if present
+                                shap_html_body = getattr(obj, "html", lambda: "")() or ""
+
+                            # Ensure SHAP JS is included so the force plot renders in Streamlit
+                            shap_html_full = f"<html><head>{shap.getjs()}</head><body style='margin:0'>{shap_html_body}</body></html>"
+
+                            components.html(shap_html_full, height=600, scrolling=True)
+
+                            safe_download(
+                                label="📥 Download SHAP Force (HTML)",
+                                data_bytes=shap_html_full.encode("utf-8"),
+                                default_name=f"{selected_symbol}_{ml_model}_SHAP_Force.html",
+                                mime_type="text/html"
+                            )
+                        except Exception as e:
+                            # Static fallback → try to export a PNG
+                            import io, matplotlib.pyplot as plt
+                            try:
+                                fig = results.get("shap_force_matplot")
+                                if fig is None:
+                                    # If your generator stashed an Explanation, try to draw one
+                                    exp = results.get("shap_explanation")
+                                    if exp is not None:
+                                        import shap as _shap
+                                        _shap.plots.force(exp, matplotlib=True, show=False)
+                                        fig = plt.gcf()
+                                if fig is not None:
+                                    buf = io.BytesIO()
+                                    fig.savefig(buf, format="png", dpi=150, bbox_inches="tight")
+                                    st.image(buf.getvalue(), caption="SHAP Force (static)")
+                                    safe_download(
+                                        label="📥 Download SHAP Force (PNG)",
+                                        data_bytes=buf.getvalue(),
+                                        default_name=f"{selected_symbol}_{ml_model}_SHAP_Force.png",
+                                        mime_type="image/png"
+                                    )
+                                else:
+                                    st.info("SHAP force plot unavailable for this model/selection.")
+                            except Exception:
                                 st.info("SHAP force plot unavailable for this model/selection.")
-                        except Exception:
-                            st.info("SHAP force plot unavailable for this model/selection.")
 
                 except Exception as e:
                     st.error(f"❌ Explainability Error: {e}")
