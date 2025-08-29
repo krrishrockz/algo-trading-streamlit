@@ -134,15 +134,31 @@ logger.info("Application started.")
 st.set_page_config(page_title="AI Trading Strategy Dashboard", layout="wide", initial_sidebar_state="expanded")
 # ---- UI polish (sidebar spacing + "selected" chip) ----
 _SIDEBAR_CSS = """
-section[data-testid="stSidebar"] .block-container { padding-top:.6rem; padding-bottom:.6rem; }
-section[data-testid="stSidebar"] [data-testid="stVerticalBlock"]{ gap:.35rem !important; }
-section[data-testid="stSidebar"] hr { margin:.4rem 0 .6rem 0; opacity:.25 }
+section[data-testid="stSidebar"] .block-container { 
+    padding-top: .4rem; 
+    padding-bottom: .4rem; 
+}
+section[data-testid="stSidebar"] [data-testid="stVerticalBlock"] { 
+    gap: .25rem !important;   /* reduce gap between widgets */
+    margin-bottom: .25rem !important;
+}
+section[data-testid="stSidebar"] hr { 
+    margin: .3rem 0 .4rem 0; 
+    opacity: .25 
+}
 .sidebar-chip {
-  background:#2d6a4f; color:#fff; border-radius:10px; padding:.55rem .75rem;
-  font-weight:600; border:1px solid #1b4332; margin:.25rem 0 .35rem 0;
+  background: #2d6a4f; 
+  color: #fff; 
+  border-radius: 8px; 
+  padding: .45rem .6rem;
+  font-size: 0.85rem;
+  font-weight: 600; 
+  border: 1px solid #1b4332; 
+  margin: .25rem 0 .25rem 0;
 }
 """
 st.markdown(f"<style>{_SIDEBAR_CSS}</style>", unsafe_allow_html=True)
+
 
 
 # --- 🎨 UI Styling ---
