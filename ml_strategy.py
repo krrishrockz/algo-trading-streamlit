@@ -18,22 +18,8 @@ from datetime import datetime
 import plotly.graph_objects as go
 import matplotlib.pyplot as plt
 
-import os
-import logging
-
-LOG_DIR = os.getenv("LOG_DIR", "logs")
-os.makedirs(LOG_DIR, exist_ok=True)
-LOG_FILE = os.path.join(LOG_DIR, "app.log")
-
-logging.basicConfig(
-    level=logging.INFO,
-    format="%(asctime)s - %(levelname)s - %(message)s",
-    handlers=[
-        logging.FileHandler(LOG_FILE, mode="a", encoding="utf-8"),
-        logging.StreamHandler(),
-    ],
-)
-logger = logging.getLogger(__name__)
+# Set up logging
+logging.basicConfig(level=logging.INFO, filename="ml_strategy.log")
 
 def plot_trade_signals(df, ticker, model_name, chart_type="plotly"):
     """
@@ -328,7 +314,7 @@ def run_ml_strategy(ticker, start, end, model="Logistic Regression", initial_cas
             logging.error(f"Missing features: {[col for col in features if col not in df.columns]}")
             raise ValueError("Missing required features")
 
-        X = df[features].select_dtypes(include=[np.number]).fillna(0)
+        X = df[features].select_dtypes(include=[np.number]).fillna(0).astype(np.float32)  # cast speeds up XGB
         y_raw = df["Signal"]
 
         # Label encode for multi-class
@@ -345,11 +331,25 @@ def run_ml_strategy(ticker, start, end, model="Logistic Regression", initial_cas
             X_train, X_test = X.iloc[train_idx], X.iloc[test_idx]
             y_train, y_test = y[train_idx], y[test_idx]
 
+        # Make X inputs float32 (helps XGBoost speed/memory)
+        X_train = X_train.astype(np.float32)
+        X_test  = X_test.astype(np.float32)
+
         # Model selection
         model_map = {
             "Logistic Regression": LogisticRegression(multi_class='multinomial', max_iter=1000),
             "Random Forest": RandomForestClassifier(n_estimators=100, random_state=42),
-            "XGBoost": XGBClassifier(objective='multi:softprob', random_state=42)
+            "XGBoost": XGBClassifier(objective='multi:softprob',
+                random_state=42,
+                n_estimators=300,
+                max_depth=4,
+                learning_rate=0.1,
+                subsample=0.9,
+                colsample_bytree=0.9,
+                tree_method="hist",
+                reg_lambda=1.0,
+                eval_metric="mlogloss",
+                verbosity=0)
         }
         
         clf = model_map.get(model)
@@ -358,7 +358,17 @@ def run_ml_strategy(ticker, start, end, model="Logistic Regression", initial_cas
             raise ValueError(f"Unknown model: {model}")
 
         # Train model
-        clf.fit(X_train, y_train)
+        if model == "XGBoost":
+            eval_set = [(X_train, y_train), (X_test, y_test)]
+            clf.fit(
+                X_train, y_train,
+                eval_set=eval_set,
+                early_stopping_rounds=50,
+                verbose=False
+            )
+        else:
+            clf.fit(X_train, y_train)
+
         df["Prediction"] = label_encoder.inverse_transform(clf.predict(X))
         
         # Simulate PnL
@@ -521,7 +531,7 @@ def train_xgboost_model(df):
         logging.error(f"Missing features: {[col for col in features if col not in df.columns]}")
         raise ValueError("Missing required features")
 
-    X = df[features].select_dtypes(include=[np.number]).fillna(0)
+    X = df[features].select_dtypes(include=[np.number]).fillna(0).astype(np.float32)
     y_raw = df["Signal"]
 
     label_encoder = LabelEncoder()
@@ -536,8 +546,30 @@ def train_xgboost_model(df):
         X_train, X_test = X.iloc[train_idx], X.iloc[test_idx]
         y_train, y_test = y[train_idx], y[test_idx]
 
-    model = XGBClassifier(objective='multi:softprob', random_state=42)
-    model.fit(X_train, y_train)
+    model = XGBClassifier(
+        objective='multi:softprob',
+        random_state=42,
+        n_estimators=300,
+        max_depth=4,
+        learning_rate=0.1,
+        subsample=0.9,
+        colsample_bytree=0.9,
+        tree_method="hist",
+        reg_lambda=1.0,
+        eval_metric="mlogloss",
+        verbosity=0
+    )
+
+    # Cast to float32 for speed
+    X_train = X_train.astype(np.float32)
+    X_test  = X_test.astype(np.float32)
+
+    model.fit(
+        X_train, y_train,
+        eval_set=[(X_train, y_train), (X_test, y_test)],
+        early_stopping_rounds=50,
+        verbose=False
+    )
     y_pred = model.predict(X_test)
     acc = accuracy_score(y_test, y_pred)
 
@@ -605,4 +637,3 @@ def compute_risk_metrics(equity: pd.Series, periods_per_year: int = 252, rf: flo
     max_dd = float(drawdown.min()) if not drawdown.empty else 0.0
 
     return {"sharpe": float(sharpe), "sortino": float(sortino), "max_dd": max_dd}
-
