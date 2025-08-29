@@ -421,25 +421,39 @@ with tab1:
             
             # Optional sentiment series for SARIMAX
             sentiment_input = None
-            sent_source = "None"
             if forecast_model == "SARIMAX" and enable_sentiment:
                 from utils_live_sentiment import get_live_daily_sentiment, align_sentiment_to_index
                 with st.spinner("📰 Pulling live news sentiment…"):
-                    sent_daily, sent_source = get_live_daily_sentiment(selected_symbol, max_items=120, lookback_days=28)
-                sentiment_input = align_sentiment_to_index(sent_daily, df.index)
-                try:
-                    if not sent_daily.empty and sentiment_input.std() > 1e-6:
-                        st.caption(
-                            f"🕒 Sentiment source: **{sent_source}** · through {sent_daily.index.max().date()} "
-                            f"(n={len(sent_daily)}, std={sentiment_input.std():.3f})"
-                        )
-                        with st.expander("Preview latest sentiment (daily)"):
-                            st.dataframe(sent_daily.tail(10).rename("compound").to_frame())
-                    else:
-                        st.warning("⚠️ No useful sentiment variation found; SARIMAX will run without exogenous.")
-                        sentiment_input = None
-                except Exception:
-                    pass
+                    sent_daily, sent_source = get_live_daily_sentiment(selected_symbol, lookback_days=30)
+
+                if isinstance(sent_daily, pd.Series) and not sent_daily.empty:
+                    # Standardize (z-score) to add variation & avoid scale issues
+                    s_mean = float(sent_daily.mean()) if np.isfinite(sent_daily.mean()) else 0.0
+                    s_std  = float(sent_daily.std())  if np.isfinite(sent_daily.std()) and sent_daily.std() != 0 else 1.0
+                    s_z = (sent_daily - s_mean) / s_std
+
+                    # Align to price index (business days); remaining gaps -> 0.0
+                    sentiment_input = align_sentiment_to_index(s_z, df.index)
+
+                    # Diagnostics for you
+                    st.caption(
+                        f"🕒 Sentiment source: {sent_source} | span={len(sent_daily)} | "
+                        f"mean={s_mean:+.3f} | std={float(sent_daily.std()):.3f}"
+                    )
+
+                    # If still flat after alignment (e.g., only 1 news date), blend with price returns
+                    if float(np.nanstd(np.asarray(sentiment_input, dtype=float))) == 0.0:
+                        st.info("ℹ️ Sentiment series flat after alignment; blending with normalized price returns (50/50).")
+                        rets = pd.Series(df['Close']).pct_change().fillna(0.0)
+                        r_mean = float(rets.mean()) if np.isfinite(rets.mean()) else 0.0
+                        r_std  = float(rets.std())  if np.isfinite(rets.std()) and rets.std() != 0 else 1.0
+                        rets_z = (rets - r_mean) / r_std
+                        rets_aligned = align_sentiment_to_index(rets_z, df.index)
+                        sentiment_input = 0.5 * sentiment_input + 0.5 * rets_aligned
+                else:
+                    st.warning("⚠️ No recent headlines found; continuing without exogenous sentiment.")
+                    sentiment_input = None
+
 
 
 
@@ -478,6 +492,27 @@ with tab1:
                 st.error("🚨 Forecasting model failed to generate results.")
                 logger.error(f"{forecast_model} failed to generate results")
                 st.stop()
+            
+            
+            # --- SARIMAX exogenous diagnostics (whether it actually used sentiment) ---
+            if forecast_model == "SARIMAX":
+                used_exog = isinstance(sentiment_input, (pd.Series, np.ndarray)) and (
+                    np.nanstd(np.asarray(sentiment_input, dtype=float)) > 1e-12
+                )
+                beta_msg = "—"
+                try:
+                    if used_exog and hasattr(model_fit, "params"):
+                        # Try to locate the exogenous coefficient name
+                        # Common keys include 'exog', 'x1', or param names that contain 'exog'
+                        for k, v in (model_fit.params.items() if hasattr(model_fit.params, "items") else enumerate(model_fit.params)):
+                            name = k if isinstance(k, str) else str(k)
+                            if ("exog" in name.lower()) or ("x" in name.lower()):
+                                beta_msg = f"{float(v):+.4f}"
+                                break
+                except Exception:
+                    pass
+                st.info(f"SARIMAX exogenous sentiment used: {'Yes ✅' if used_exog else 'No (flat/missing) ⚠️'} | β_sent: {beta_msg}")
+
 
             # Ensure forecast index is forward-looking business days (no weekends/holidays)
             last_hist_date = pd.to_datetime(df.index[-1])
