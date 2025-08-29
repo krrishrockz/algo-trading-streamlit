@@ -4,7 +4,8 @@
 # Normalized observations, optional transaction cost, epsilon-greedy eval.
 # Works with Stable-Baselines3 v2.x (gymnasium API).
 # ------------------------------------------------------------
-
+import logging
+import os
 import numpy as np
 import pandas as pd
 import matplotlib.pyplot as plt
@@ -12,6 +13,19 @@ import matplotlib.pyplot as plt
 import gymnasium as gym
 from gymnasium import spaces
 from stable_baselines3 import DQN
+
+# Ensure logs directory exists (works locally and on Streamlit Cloud)
+LOG_DIR = os.path.join(os.path.dirname(__file__), "logs")
+os.makedirs(LOG_DIR, exist_ok=True)
+LOG_FILE = os.path.join(LOG_DIR, "rl_dqn_agent.log")
+
+logging.basicConfig(
+    filename=LOG_FILE,
+    filemode="a",
+    level=logging.INFO,
+    format="%(asctime)s - %(levelname)s - %(message)s",
+)
+logger = logging.getLogger(__name__)
 
 
 class StockTradingEnv(gym.Env):
@@ -388,4 +402,5 @@ def plot_dqn_net_worth(worths, title="DQN Net Worth"):
 # shimmy>=1.3.0
 # torch>=2.2.0
 # numpy, pandas, matplotlib, streamlit, plotly
+
 
