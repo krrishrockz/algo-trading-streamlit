@@ -206,6 +206,37 @@ st.markdown("""
 """, unsafe_allow_html=True)
 st.title("📊 AI-Based Algorithmic Trading Platform")
 
+# ---- Tab colors (1..6) ----
+_TABS_CSS = """
+/* Base look */
+div[data-baseweb="tab-list"] button[role="tab"]{
+  border-radius: 8px 8px 0 0;
+  padding: .45rem .75rem;
+  margin-right: .25rem;
+  font-weight: 600;
+  opacity:.95;
+}
+/* Active tab pop */
+div[data-baseweb="tab-list"] button[role="tab"][aria-selected="true"]{
+  box-shadow: inset 0 -3px 0 0 currentColor;
+  color: #fff !important;
+}
+
+/* Per-tab accent colors */
+div[data-baseweb="tab-list"] button[role="tab"]:nth-child(1){ background:#19314a; color:#7cc4ff; }
+div[data-baseweb="tab-list"] button[role="tab"]:nth-child(2){ background:#2a2e1f; color:#cde76a; }
+div[data-baseweb="tab-list"] button[role="tab"]:nth-child(3){ background:#2c1f2f; color:#ff87d0; }
+div[data-baseweb="tab-list"] button[role="tab"]:nth-child(4){ background:#1f2c26; color:#7cf2c7; }
+div[data-baseweb="tab-list"] button[role="tab"]:nth-child(5){ background:#2d2320; color:#ffcf99; }
+div[data-baseweb="tab-list"] button[role="tab"]:nth-child(6){ background:#231f2d; color:#c6a5ff; }
+
+/* Hover */
+div[data-baseweb="tab-list"] button[role="tab"]:hover{ filter:brightness(1.05); }
+"""
+st.markdown(f"<style>{_TABS_CSS}</style>", unsafe_allow_html=True)
+
+
+
 # --- Sidebar ---
 with st.sidebar:
     st.markdown("### 📊 Stock Selection")
@@ -242,12 +273,6 @@ with st.sidebar:
     if not selected_symbol:
         st.warning("⚠️ Please enter a stock symbol or use the buttons/quick picks.")
 
-
-
-    st.markdown("### 📅 Date Range")
-    start_date = st.date_input("Start Date", value=dt.date(2022, 1, 1), key="start_date")
-    end_date = st.date_input("End Date", value=dt.date.today(), key="end_date")
-
     # Validate Stock
     if selected_symbol:
         try:
@@ -258,19 +283,24 @@ with st.sidebar:
         except Exception:
             st.error("❌ Could not validate symbol.")
 
+    # --- Compact Date + Refresh (side-by-side) ---
+    st.markdown("### 📅 & 🔁 Range / Refresh")
+    col_dates, col_refresh = st.columns([1, 1])
 
-    # --- Middle: Auto Refresh ---
-    st.markdown("### 🔁 Auto Refresh")
-    refresh_rate = st.slider("Auto Refresh (sec)", 0, 3000, 300, step=10)
+    with col_dates:
+        start_date = st.date_input("Start", value=dt.date(2022, 1, 1), key="start_date")
+        end_date   = st.date_input("End",   value=dt.date.today(),   key="end_date")
+    
+    with col_refresh:
+        refresh_rate = st.slider("Auto Refresh (sec)", 0, 3000, 300, step=10, key="refresh_rate")
     # Pause auto-refresh when long tasks are running
-    # Pause auto-refresh when long tasks are running
-    if refresh_rate > 0 and not st.session_state.get("busy", False):
-        st_autorefresh(interval=refresh_rate * 1000, key="refresh_timer")
+        if refresh_rate > 0 and not st.session_state.get("busy", False):
+            st_autorefresh(interval=refresh_rate * 1000, key="refresh_timer")
 
-    # Compact "Selected" chip (shows current ticker)
+    # Compact "Selected" chip (single place, no duplicate)
     if selected_symbol:
         st.markdown(f"<div class='sidebar-chip'>✅ Selected: {selected_symbol}</div>", unsafe_allow_html=True)
-        st.session_state["_chip_rendered"] = True
+
 
     st.divider()
 
