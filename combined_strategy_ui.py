@@ -1247,15 +1247,24 @@ with tab2:
                 logging.warning(f"RF benchmark failed: {e}")
 
             # --- XGBoost (light, guarded) ---
+                        # --- XGBoost (light, robust, with label encoding + safe fit) ---
             try:
                 import xgboost as xgb
                 from xgboost import XGBClassifier
+                from sklearn.preprocessing import LabelEncoder
+
                 bm_progress.progress(80, text="Benchmark: XGBoost…")
                 t0 = time.perf_counter()
+
+                # Label-encode y for XGBoost (required by some versions)
+                le_bm = LabelEncoder()
+                y_tr_enc = le_bm.fit_transform(y_tr)
+                y_te_enc = le_bm.transform(y_te)
+
                 xgb_model = XGBClassifier(
                     objective="multi:softprob",
                     random_state=42,
-                    n_estimators=120,        # lighter than default
+                    n_estimators=120,        # lighter than default for speed
                     max_depth=3,
                     learning_rate=0.12,
                     subsample=0.9,
@@ -1266,26 +1275,68 @@ with tab2:
                     n_jobs=1,
                     verbosity=0,
                 )
-                # plain fit (fast + version-safe)
-                xgb_model.fit(X_tr.astype(np.float32), y_tr)
-                y_pred = xgb_model.predict(X_te.astype(np.float32))
+
+                # Version-safe fit: try plain fit first, fall back to your shim
+                try:
+                    xgb_model.fit(X_tr.astype(np.float32), y_tr_enc)
+                except Exception:
+                    try:
+                        from ml_strategy import _safe_xgb_fit
+                        _safe_xgb_fit(xgb_model, X_tr.astype(np.float32), y_tr_enc, eval_set=[(X_te.astype(np.float32), y_te_enc)])
+                    except Exception as e_fit:
+                        raise e_fit  # bubble up to outer except
+
+                # Predict in encoded space, then map back to original labels {-1,0,1}
+                y_pred_enc = xgb_model.predict(X_te.astype(np.float32))
+                y_pred = le_bm.inverse_transform(y_pred_enc)
+
+                # Confusion matrix on original labels
                 cm_xgb = confusion_matrix(y_te, y_pred, labels=labels)
                 per_class_xgb = _per_class_stats(cm_xgb, labels)
                 spec_macro_xgb = float(per_class_xgb["Specificity"].mean())
+
+                # Macro AUC using encoded ground truth/proba
+                auc_macro_xgb = np.nan
+                try:
+                    proba = xgb_model.predict_proba(X_te.astype(np.float32))
+                    # Build y_true_bin in the same encoded order
+                    # (le_bm.classes_ should be a permutation of labels)
+                    # Create a mapping from original labels -> encoded idx
+                    enc_order = list(le_bm.classes_)         # e.g., [-1, 0, 1]
+                    # reorder columns of proba so they match [-1,0,1] order if possible
+                    # If enc_order already equals labels, this is a no-op.
+                    if set(enc_order) == set(labels):
+                        reorder = [enc_order.index(c) for c in labels]
+                        proba = proba[:, reorder]
+                    y_true_bin = label_binarize(y_te, classes=labels)
+                    if y_true_bin.shape[1] == proba.shape[1]:
+                        aucs = []
+                        for k in range(y_true_bin.shape[1]):
+                            try:
+                                aucs.append(roc_auc_score(y_true_bin[:, k], proba[:, k]))
+                            except Exception:
+                                pass
+                        if aucs:
+                            auc_macro_xgb = float(np.mean(aucs))
+                except Exception:
+                    pass
+
                 row = {
                     "Model": "XGBoost",
                     "Accuracy": accuracy_score(y_te, y_pred),
                     "F1-Score": f1_score(y_te, y_pred, average="weighted", zero_division=0),
-                    "ROC AUC": _macro_auc(xgb_model, X_te.astype(np.float32), y_te, labels),
-                    "AUC (macro)": _macro_auc(xgb_model, X_te.astype(np.float32), y_te, labels),
+                    "ROC AUC": auc_macro_xgb,          # keep one AUC column consistent
+                    "AUC (macro)": auc_macro_xgb,      # also fill macro column
                     "Specificity (macro)": spec_macro_xgb
                 }
                 bench_rows.append(row)
                 bm_df_live = pd.DataFrame(bench_rows)
                 _render_live(bm_df_live)
                 bm_progress.progress(95, text=f"XGB done in {time.perf_counter()-t0:.2f}s")
+
             except Exception as e:
-                logging.info(f"XGBoost benchmark skipped/failed: {e}")
+                logging.info(f"XGBoost benchmark failed: {e}")
+
 
             # Finalize + download
             if not bm_df_live.empty:
