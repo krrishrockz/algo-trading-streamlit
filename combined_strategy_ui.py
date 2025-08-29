@@ -441,6 +441,22 @@ with tab1:
                         f"mean={s_mean:+.3f} | std={float(sent_daily.std()):.3f}"
                     )
 
+                    # NEW: compact preview dropdown of last 14 daily sentiment points
+                    try:
+                        lastN = sent_daily.sort_index().tail(14)
+                        preview = [f"{d.date()}  |  {v:+.3f}" for d, v in lastN.items()]
+                        st.selectbox(
+                            "Daily sentiment (last 14 days)",
+                            options=preview if preview else ["(no data)"],
+                            index=(len(preview) - 1) if preview else 0,
+                            key="sarimax_sentiment_preview",
+                        )
+                        # Store for reuse elsewhere if needed
+                        st.session_state["sarimax_sent_series"] = lastN
+                        st.session_state["sarimax_sent_source"] = sent_source
+                    except Exception:
+                        pass
+
                     # If still flat after alignment (e.g., only 1 news date), blend with price returns
                     if float(np.nanstd(np.asarray(sentiment_input, dtype=float))) == 0.0:
                         st.info("ℹ️ Sentiment series flat after alignment; blending with normalized price returns (50/50).")
@@ -683,8 +699,6 @@ with tab1:
         except Exception as e:
             st.error(f"🚨 Forecasting Error: {e}")
             logging.error(f"Forecasting error: {e}")
-
-
 
 # --- Tab 2: ML Strategy ---
 with tab2:
