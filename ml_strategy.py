@@ -21,6 +21,29 @@ import matplotlib.pyplot as plt
 # Set up logging
 logging.basicConfig(level=logging.INFO, filename="ml_strategy.log")
 
+
+# --- XGBoost compatibility shim (works across old/new versions) ---
+def _safe_xgb_fit(model, X_train, y_train, eval_set=None):
+    """Try callbacks → early_stopping_rounds → eval_set → plain fit."""
+    try:
+        # Newer API: callbacks
+        from xgboost import callback as _xgb_cb  # may not exist on very old versions
+        cb = [_xgb_cb.EarlyStopping(rounds=50, save_best=True)]
+        return model.fit(X_train, y_train, eval_set=eval_set or [], callbacks=cb, verbose=False)
+    except Exception:
+        try:
+            # Mid API: early_stopping_rounds kwarg
+            return model.fit(X_train, y_train, eval_set=eval_set or [], early_stopping_rounds=50, verbose=False)
+        except Exception:
+            try:
+                # Old API: accept eval_set only
+                if eval_set is not None:
+                    return model.fit(X_train, y_train, eval_set=eval_set, verbose=False)
+            except Exception:
+                # Ancient API: plain fit
+                return model.fit(X_train, y_train)
+
+
 def plot_trade_signals(df, ticker, model_name, chart_type="plotly"):
     """
     Plots trade signals with historical prices.
@@ -57,7 +80,7 @@ def plot_trade_signals(df, ticker, model_name, chart_type="plotly"):
         buy_signals = df[df["Prediction"] == 1]
         sell_signals = df[df["Prediction"] == -1]
         plt.scatter(buy_signals["Date"], buy_signals["Close"], label="Buy Signal", marker="^", color="green", s=100)
-        plt.scatter(sell_signals["Date"], sell_signals["Close"], label="Sell Signal", marker="v", color="red", s=100)
+        plt.scatter(sell_signals["Date"], buy_signals["Close"], label="Sell Signal", marker="v", color="red", s=100)
         plt.title(f"{ticker} – {model_name} Trade Signals")
         plt.xlabel("Date")
         plt.ylabel("Price (INR)")
@@ -298,6 +321,10 @@ def run_ml_strategy(ticker, start, end, model="Logistic Regression", initial_cas
     try:
         # Fetch and preprocess data
         df = fetch_ohlcv_data(ticker, start, end)
+        # Guard: empty/missing Close ⇒ fail fast with clear message
+        if df is None or df.empty or ("Close" not in df.columns):
+            raise ValueError("No price data (or missing 'Close') for the selected ticker/date range.")
+
         include_list = indicators if indicators else ["MA10", "MA50", "RSI", "MACD"]
         df = add_technical_indicators(df, include=include_list)
         df = create_labels(df, strategy="Return Threshold", threshold=1.0)
@@ -360,15 +387,14 @@ def run_ml_strategy(ticker, start, end, model="Logistic Regression", initial_cas
         # Train model
         if model == "XGBoost":
             eval_set = [(X_train, y_train), (X_test, y_test)]
-            callbacks = [xgb.callback.EarlyStopping(rounds=50, save_best=True)]
-            clf.fit(
-                X_train, y_train,
-                eval_set=eval_set,
-                callbacks=callbacks,
-                verbose=False
-            )
+            # Use version-safe shim (no callbacks/ESR args directly on fit)
+            _safe_xgb_fit(clf, X_train, y_train, eval_set=eval_set)
         else:
-            clf.fit(X_train, y_train)
+            if isinstance(clf, XGBClassifier):
+                eval_set = [(X_train, y_train), (X_test, y_test)]
+                _safe_xgb_fit(clf, X_train, y_train, eval_set=eval_set)
+            else:
+                clf.fit(X_train, y_train)
 
         df["Prediction"] = label_encoder.inverse_transform(clf.predict(X))
         
@@ -564,14 +590,11 @@ def train_xgboost_model(df):
     # Cast to float32 for speed
     X_train = X_train.astype(np.float32)
     X_test  = X_test.astype(np.float32)
-    callbacks = [xgb.callback.EarlyStopping(rounds=50, save_best=True)]
+    # callbacks = [xgb.callback.EarlyStopping(rounds=50, save_best=True)]  # not used for broad compatibility
 
-    model.fit(
-        X_train, y_train,
-        eval_set=[(X_train, y_train), (X_test, y_test)],
-        callbacks=callbacks,
-        verbose=False
-    )
+    # Version-safe fit
+    _safe_xgb_fit(model, X_train, y_train, eval_set=[(X_train, y_train), (X_test, y_test)])
+
     y_pred = model.predict(X_test)
     acc = accuracy_score(y_test, y_pred)
 
@@ -639,4 +662,3 @@ def compute_risk_metrics(equity: pd.Series, periods_per_year: int = 252, rf: flo
     max_dd = float(drawdown.min()) if not drawdown.empty else 0.0
 
     return {"sharpe": float(sharpe), "sortino": float(sortino), "max_dd": max_dd}
-
