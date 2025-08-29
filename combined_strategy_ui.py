@@ -460,7 +460,7 @@ with tab1:
             ["ARIMA", "SARIMA", "SARIMAX", "Prophet", "LSTM"],
             key="forecast_model",
         )
-        forecast_days = st.slider("Forecast Days", 1, 15, 5, key="forecast_days")
+        forecast_days = st.slider("Forecast Days", 1, 30, 5, key="forecast_days")
     with col2:
         chart_mode = st.radio(
             "Chart Type", ["📊 Plotly (Interactive)", "🖼️ Matplotlib (Static)"], key="chart_mode"
@@ -2262,6 +2262,7 @@ with tab6:
                 st.caption(f"Last alert at **{ts}**")
         except Exception as e:
             st.warning(f"Alert demo error: {e}")
+
 
 
 
