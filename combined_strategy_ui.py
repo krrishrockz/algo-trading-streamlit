@@ -304,15 +304,17 @@ with st.sidebar:
 
     st.divider()
 
-    # --- Reset Session State ---
-    if st.button("Reset Session State"):
-        for key in ["ml_df", "ml_equity", "ml_final_cash", "dqn_df", "dqn_worth", "dqn_log"]:
-            if key in st.session_state:
-                del st.session_state[key]
-        st.success("✅ Session state cleared. Run ML and DQN strategies again.")
+    # --- Utilities (Reset + Roadmap) in one expander ---
+    with st.expander("🧰 Utilities"):
+        st.markdown("**Session Controls**")
+        if st.button("Reset Session State", key="reset_session_btn"):
+            for key in ["ml_df", "ml_equity", "ml_final_cash", "dqn_df", "dqn_worth", "dqn_log"]:
+                if key in st.session_state:
+                    del st.session_state[key]
+            st.success("✅ Session state cleared. Run ML and DQN strategies again.")
 
-    # --- Roadmap ---
-    with st.expander("📌 Project Roadmap"):
+        st.markdown("---")
+        st.markdown("**Project Roadmap**")
         st.markdown("""
         - ✅ Time-Series Forecasting  
         - ✅ ML Strategy  
@@ -322,7 +324,8 @@ with st.sidebar:
         - ☁️ Streamlit Cloud Deployment
         """)
 
-# --- Helper Functions ---
+
+    # --- Helper Functions ---
 def get_live_price(ticker):
     """
     Returns (last_trade_price, prev_close_for_change).
