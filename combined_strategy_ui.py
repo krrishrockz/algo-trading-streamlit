@@ -1095,52 +1095,70 @@ with tab2:
                 except Exception as e:
                     st.error(f"❌ Explainability Error: {e}")
                     
-                        # ================= Benchmark Models =================
-            st.markdown("### 🏁 Benchmark Models")
-            if st.button("📊 Run Benchmark Models", key="benchmark_btn"):
-                try:
-                    st.info("⏳ Running benchmark across Logistic Regression, Random Forest, and XGBoost...")
+            # ================= Benchmark Models =================
+                                    # ---------- Benchmark Comparison Charts ----------
+            st.markdown("#### 📊 Benchmark Comparison Charts")
 
-                    if "ml_df" not in st.session_state or st.session_state.ml_df is None:
-                        st.error("❌ Please run ML Strategy first before benchmarking.")
-                    else:
-                        bm_df = benchmark_models(st.session_state.ml_df.copy())
+            import plotly.express as px
 
-                        if not bm_df.empty:
-                            # Show results
-                            st.dataframe(bm_df, use_container_width=True)
+            # Accuracy chart
+            fig_acc = px.bar(
+                bm_df,
+                x="Model",
+                y="Accuracy",
+                text="Accuracy",
+                title="Model Accuracy",
+                color="Model",
+                color_discrete_sequence=px.colors.qualitative.Set2
+            )
+            fig_acc.update_traces(texttemplate="%{text:.2f}", textposition="outside")
+            fig_acc.update_layout(yaxis=dict(range=[0, 1]))
+            plotly_chart_unique(fig_acc, "bm_acc")
 
-                            # Highlight best model
-                            best_by_f1 = bm_df.sort_values("F1-Score", ascending=False).iloc[0]
-                            c1, c2, c3 = st.columns(3)
-                            c1.metric("🏆 Best Model", best_by_f1["Model"])
-                            c2.metric("Accuracy", f"{best_by_f1['Accuracy']:.2f}")
-                            c3.metric("F1-Score", f"{best_by_f1['F1-Score']:.2f}")
+            # F1-Score chart
+            fig_f1 = px.bar(
+                bm_df,
+                x="Model",
+                y="F1-Score",
+                text="F1-Score",
+                title="Model F1-Score",
+                color="Model",
+                color_discrete_sequence=px.colors.qualitative.Set3
+            )
+            fig_f1.update_traces(texttemplate="%{text:.2f}", textposition="outside")
+            fig_f1.update_layout(yaxis=dict(range=[0, 1]))
+            plotly_chart_unique(fig_f1, "bm_f1")
 
-                            c4, c5 = st.columns(2)
-                            c4.metric("AUC (macro)", f"{best_by_f1['AUC (macro)']:.2f}")
-                            c5.metric("Specificity (macro)", f"{best_by_f1['Specificity (macro)']:.2f}")
+            # AUC Macro chart
+            if "AUC (macro)" in bm_df.columns:
+                fig_auc = px.bar(
+                    bm_df,
+                    x="Model",
+                    y="AUC (macro)",
+                    text="AUC (macro)",
+                    title="Model AUC (macro OVR)",
+                    color="Model",
+                    color_discrete_sequence=px.colors.qualitative.Bold
+                )
+                fig_auc.update_traces(texttemplate="%{text:.2f}", textposition="outside")
+                fig_auc.update_layout(yaxis=dict(range=[0, 1]))
+                plotly_chart_unique(fig_auc, "bm_auc")
 
-                            st.success(
-                                f"✅ Based on F1-Score, the best performing model is **{best_by_f1['Model']}** "
-                                f"(Acc={best_by_f1['Accuracy']:.2f}, "
-                                f"AUC={best_by_f1['AUC (macro)']:.2f})"
-                            )
+            # Specificity Macro chart
+            if "Specificity (macro)" in bm_df.columns:
+                fig_spec = px.bar(
+                    bm_df,
+                    x="Model",
+                    y="Specificity (macro)",
+                    text="Specificity (macro)",
+                    title="Model Specificity (macro)",
+                    color="Model",
+                    color_discrete_sequence=px.colors.qualitative.Pastel
+                )
+                fig_spec.update_traces(texttemplate="%{text:.2f}", textposition="outside")
+                fig_spec.update_layout(yaxis=dict(range=[0, 1]))
+                plotly_chart_unique(fig_spec, "bm_spec")
 
-                            # 📥 Download button for CSV
-                            bm_csv = bm_df.to_csv(index=False).encode("utf-8")
-                            st.download_button(
-                                label="📥 Download Benchmark CSV",
-                                data=bm_csv,
-                                file_name=f"{selected_symbol}_benchmark_results.csv",
-                                mime="text/csv",
-                                key="dl_benchmark_csv"
-                            )
-                        else:
-                            st.warning("⚠️ Benchmark returned no results. Check your input data.")
-                except Exception as e:
-                    st.error(f"❌ Benchmark failed: {e}")
-                    logging.error(f"Benchmark models failed: {e}")
     
         except Exception as e:
                     st.error(f"❌ ML strategy Error: {e}")
@@ -2049,7 +2067,3 @@ with tab6:
                 st.caption(f"Last alert at **{ts}**")
         except Exception as e:
             st.warning(f"Alert demo error: {e}")
-
-
-
-
