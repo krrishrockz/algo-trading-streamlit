@@ -214,12 +214,6 @@ with st.sidebar:
     if c3.button("Raw", use_container_width=True, key="btn_use_raw"):
         st.session_state["selected_symbol"] = base_symbol
 
-    # Popular quick picks to avoid typing
-    _qp = ["RELIANCE.NS", "HDFCBANK.NS", "INFY.NS", "TCS.NS", "ICICIBANK.NS",
-           "TATASTEEL.NS", "SBIN.NS", "HINDUNILVR.NS"]
-    qp_choice = st.selectbox("Or pick quickly", options=["—"] + _qp, index=0, key="quick_pick")
-    if qp_choice != "—":
-        st.session_state["selected_symbol"] = qp_choice
 
     # Final resolved symbol (used by the rest of the app)
     selected_symbol = st.session_state.get("selected_symbol")
@@ -261,29 +255,6 @@ with st.sidebar:
     if selected_symbol:
         st.markdown(f"<div class='sidebar-chip'>✅ Selected: {selected_symbol}</div>", unsafe_allow_html=True)
         st.session_state["_chip_rendered"] = True
-
-
-    # Use remaining sidebar space: quick date shortcuts + a minor toggle
-    # -- Callback helpers (avoid writing widget state inline) --
-    def _set_start_months(m: int):
-        st.session_state["start_date"] = (pd.Timestamp.today() - pd.DateOffset(months=m)).date()
-        st.session_state["end_date"] = dt.date.today()
-        st.rerun()
-
-    def _set_start_years(y: int):
-        st.session_state["start_date"] = (pd.Timestamp.today() - pd.DateOffset(years=y)).date()
-        st.session_state["end_date"] = dt.date.today()
-        st.rerun()
-
-    with st.expander("⚡ Shortcuts", expanded=False):
-        sc1, sc2, sc3 = st.columns(3)
-        sc1.button("1M", on_click=_set_start_months, args=(1,))
-        sc2.button("3M", on_click=_set_start_months, args=(3,))
-        sc3.button("1Y", on_click=_set_start_years,  args=(1,))
-        st.toggle("Dark Grid", key="dark_grid", value=st.session_state.get("dark_grid", True))
-
-
-
 
     st.divider()
 
