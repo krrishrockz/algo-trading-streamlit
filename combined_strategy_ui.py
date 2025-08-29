@@ -237,10 +237,13 @@ with st.sidebar:
     # Validate Stock
     if selected_symbol:
         try:
-            test_data = yf.Ticker(selected_symbol).history(period="1d")
-            st.success(f"✅ Selected: {selected_symbol}")
+            _ = yf.Ticker(selected_symbol).history(period="1d")
+            # Show success only if chip wasn't rendered (prevents duplicate "Selected")
+            if not st.session_state.get("_chip_rendered"):
+                st.success(f"✅ Selected: {selected_symbol}")
         except Exception:
             st.error("❌ Could not validate symbol.")
+
 
     # --- Middle: Auto Refresh ---
     st.markdown("### 🔁 Auto Refresh")
@@ -253,17 +256,26 @@ with st.sidebar:
     # Compact "Selected" chip (shows current ticker)
     if selected_symbol:
         st.markdown(f"<div class='sidebar-chip'>✅ Selected: {selected_symbol}</div>", unsafe_allow_html=True)
+        st.session_state["_chip_rendered"] = True
+
 
     # Use remaining sidebar space: quick date shortcuts + a minor toggle
     with st.expander("⚡ Shortcuts", expanded=False):
         sc1, sc2, sc3 = st.columns(3)
         if sc1.button("1M"):
-            st.session_state["start_date"] = pd.Timestamp.today().date() - pd.DateOffset(months=1)
+            new_start = (pd.Timestamp.today() - pd.DateOffset(months=1)).date()
+            st.session_state["start_date"] = new_start
+            st.session_state["end_date"] = dt.date.today()
         if sc2.button("3M"):
-            st.session_state["start_date"] = pd.Timestamp.today().date() - pd.DateOffset(months=3)
+            new_start = (pd.Timestamp.today() - pd.DateOffset(months=3)).date()
+            st.session_state["start_date"] = new_start
+            st.session_state["end_date"] = dt.date.today()
         if sc3.button("1Y"):
-            st.session_state["start_date"] = pd.Timestamp.today().date() - pd.DateOffset(years=1)
+            new_start = (pd.Timestamp.today() - pd.DateOffset(years=1)).date()
+            st.session_state["start_date"] = new_start
+            st.session_state["end_date"] = dt.date.today()
         st.toggle("Dark Grid", key="dark_grid", value=st.session_state.get("dark_grid", True))
+
 
 
 
