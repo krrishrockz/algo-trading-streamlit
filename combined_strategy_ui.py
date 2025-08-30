@@ -2082,14 +2082,19 @@ with tab6:
 
         if current_price is not None and prev_close is not None:
             pct = ((current_price - prev_close) / prev_close) * 100 if prev_close else 0.0
-            arrow = "↑" if pct >= 0 else "↓"
+            
+            # Don't add arrows manually; let st.metric handle it
             st.metric(
                 label=f"📘 {selected_symbol} Live Price" + (" (daily)" if used_fallback else ""),
                 value=f"₹{current_price:.2f}",
-                delta=f"{arrow} {abs(pct):.2f}%",
+                delta=f"{pct:.2f}%",  
                 delta_color="normal"  # green for positive, red for negative
             )
-            st.caption(("📅 Using last daily data (market closed). " if used_fallback else "") + f"Auto-refresh every {refresh_rate} sec.")
+            
+            st.caption(
+                ("📅 Using last daily data (market closed). " if used_fallback else "") +
+                f"Auto-refresh every {refresh_rate} sec."
+            )
         else:
             st.warning("⚠️ Could not fetch price for KPI.")
 
@@ -2262,6 +2267,7 @@ with tab6:
                 st.caption(f"Last alert at **{ts}**")
         except Exception as e:
             st.warning(f"Alert demo error: {e}")
+
 
 
 
